@@ -1,0 +1,4 @@
+frontend/dist/
+backend/uploads/
+backend/.env
+frontend/.env

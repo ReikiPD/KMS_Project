@@ -1,18 +1,33 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { Table, Button, Tooltip, TextField, Alert, Modal } from "@idds/react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Home,
-  ChevronRight,
+  Table,
+  Button,
+  Tooltip,
+  TextField,
+  Alert,
+  Badge,
+  Modal,
+  Card,
+} from "@idds/react";
+import {
   Plus,
   Edit,
   Trash2,
   FileText,
   Video,
 } from "lucide-react";
+import AdminPageHeader from "../../../components/AdminPageHeader";
+import { apiFetch, currentUser } from "../../../lib/api";
+import useAdminView from "../../../hooks/useAdminView";
 
 export default function AssetsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const user = currentUser() || {};
+  const selectedAuthorId = searchParams.get("authorId") || "";
+  const { isActingAsEmployee, isAdminViewingUser, staffMember, withEmployeeContext } = useAdminView();
+  const canWrite = ["pegawai", "admin"].includes(user.role) && !isAdminViewingUser;
   const [data, setData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -31,15 +46,18 @@ export default function AssetsPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState(null);
 
+  const navigateScoped = useCallback((path) => {
+    const target = new URL(path, window.location.origin);
+    if (selectedAuthorId) target.searchParams.set("authorId", selectedAuthorId);
+    navigate(withEmployeeContext(`${target.pathname}${target.search}`));
+  }, [navigate, selectedAuthorId, withEmployeeContext]);
+
   // Mengambil data dari Backend
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const token = localStorage.getItem("kms_token");
-      const response = await fetch("http://localhost:3000/api/assets/admin", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiFetch(`/api/assets/admin${selectedAuthorId ? `?authorId=${selectedAuthorId}` : ""}`, { auth: true });
 
       if (!response.ok) throw new Error("Gagal mengambil data aset");
 
@@ -50,11 +68,11 @@ export default function AssetsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedAuthorId]);
 
   useEffect(() => {
     fetchAssets();
-  }, []);
+  }, [fetchAssets]);
 
   // Menangani Pencarian Klien
   const handleSearch = () => {
@@ -78,14 +96,7 @@ export default function AssetsPage() {
     if (!assetToDelete) return;
 
     try {
-      const token = localStorage.getItem("kms_token");
-      const response = await fetch(
-        `http://localhost:3000/api/assets/${assetToDelete}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await apiFetch(`/api/assets/${assetToDelete}`, { method: "DELETE", auth: true });
 
       if (!response.ok) throw new Error("Gagal menghapus aset");
 
@@ -158,12 +169,12 @@ export default function AssetsPage() {
               <FileText size={20} />
             )}
           </div>
-          <div className="flex flex-col">
-            <span className="font-semibold text-slate-800 line-clamp-1">
+          <div className="flex min-w-0 flex-col">
+            <button type="button" onClick={() => navigateScoped(`/admin/assets/${row.id}`)} className="line-clamp-1 text-left font-semibold text-slate-800 hover:text-content-guide hover:underline focus:outline-none focus:ring-2 focus:ring-primary-300">
               {row.title}
-            </span>
+            </button>
             <span className="text-xs text-slate-500">
-              {row.category_name || "Tanpa Kategori"}
+              {row.category_name || "Tanpa Kategori"}{row.author_name ? ` · ${row.author_name}` : ""}
             </span>
           </div>
         </div>
@@ -196,6 +207,12 @@ export default function AssetsPage() {
       ),
     },
     {
+      header: "Kualitas",
+      accessor: "quality",
+      sortable: false,
+      render: (row) => <Badge type="soft" variant={row.quality?.status === "complete" ? "success" : "warning"} size="sm">{row.quality?.completed || 0}/{row.quality?.total || 6}</Badge>,
+    },
+    {
       header: "Tanggal Dibuat",
       accessor: "created_at",
       sortable: true,
@@ -223,7 +240,7 @@ export default function AssetsPage() {
             <Button
               size="sm"
               hierarchy="tertiary"
-              onClick={() => navigate(`/admin/assets/edit/${row.id}`)}
+              onClick={() => navigateScoped(`/admin/assets/edit/${row.id}`)}
             >
               <Edit size={16} className="text-slate-500 hover:text-blue-600" />
             </Button>
@@ -248,44 +265,19 @@ export default function AssetsPage() {
       ),
     },
   ];
+  const displayColumns = canWrite ? columns : columns.filter((column) => column.accessor !== "actions");
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto w-full">
-      <nav className="flex items-center text-sm text-slate-500 mb-6">
-        <Link
-          to="/admin/dashboard"
-          className="flex items-center hover:text-blue-600 transition-colors"
-        >
-          <Home size={16} className="mr-1.5" /> Dasbor
-        </Link>
-        <ChevronRight size={16} className="mx-2 text-slate-400" />
-        <span className="font-medium text-slate-800">Daftar Aset</span>
-      </nav>
-
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Katalog Aset Pengetahuan
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Kelola seluruh dokumen dan media yang telah Anda buat.
-          </p>
-        </div>
-        <Button
-          hierarchy="primary"
-          onClick={() => navigate("/admin/assets/create")}
-        >
-          <Plus size={18} className="mr-2" /> Tambah Aset
-        </Button>
-      </div>
+    <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
+      <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode pantau akun" : "Manajemen Pengetahuan"} title="Katalog Aset Pengetahuan" description={isActingAsEmployee ? `Anda mengelola aset atas nama ${staffMember?.full_name || "Pegawai terpilih"}.` : isAdminViewingUser ? `Admin sedang melihat aset ${staffMember?.full_name || "akun terpilih"} dalam mode baca.` : selectedAuthorId ? "Aset pegawai yang dipilih. Pimpinan hanya memiliki akses baca." : user.role === "admin" ? "Kelola aset seluruh Pegawai melalui Manajemen Pegawai atau mode kerja Pegawai." : canWrite ? "Kelola dokumen dan media yang Anda buat, dari draf hingga publikasi." : "Lihat aset pengetahuan seluruh pegawai dalam mode baca."} breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Aset Pengetahuan" }]} actions={canWrite ? <Button hierarchy="primary" onClick={() => navigateScoped("/admin/assets/create")} prefixIcon={<Plus size={18} />}>Tambah aset</Button> : null} />
 
       {error && (
         <div className="mb-4">
-          <Alert variant="danger" message={error} />
+          <Alert variant="critical" title="Aset tidak dapat dimuat" message={error} />
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <Card className="p-6">
         <div className="flex items-center gap-2 mb-6 max-w-md">
           <div className="flex-1">
             <TextField
@@ -314,7 +306,7 @@ export default function AssetsPage() {
         </div>
 
         <Table
-          columns={columns}
+          columns={displayColumns}
           data={processedData.paginatedData}
           total={processedData.total}
           loading={isLoading}
@@ -327,7 +319,7 @@ export default function AssetsPage() {
           rowKey="id"
           striped
         />
-      </div>
+      </Card>
 
       {/* MODAL KONFIRMASI HAPUS */}
       <Modal
@@ -338,8 +330,7 @@ export default function AssetsPage() {
       >
         <div>
           <p className="text-slate-700">
-            Apakah Anda yakin ingin menghapus aset pengetahuan ini secara
-            permanen? Tindakan ini tidak dapat dibatalkan.
+            Aset akan diarsipkan dan tidak lagi tampil pada katalog publik.
           </p>
           <div className="flex gap-3 mt-8 justify-end">
             <Button
