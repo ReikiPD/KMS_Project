@@ -3,10 +3,8 @@ import { Link } from "react-router-dom";
 import documentFallback from "../assets/knowledge/document-fallback.png";
 import videoFallback from "../assets/knowledge/video-fallback.png";
 import { uploadUrl } from "../lib/api";
-
-const formatDate = (value) => value
-  ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value))
-  : "Tanggal tidak tersedia";
+import { formatIndonesianDate, formatRelativeTime } from "../lib/dateTime";
+import WorkUnitLabel from "./WorkUnitLabel";
 
 export default function RelatedKnowledgeList({ assets = [], className = "" }) {
   if (!assets.length) {
@@ -23,12 +21,12 @@ export default function RelatedKnowledgeList({ assets = [], className = "" }) {
         return (
           <li key={asset.id}>
             <Link to={`/detail/${asset.id}`} className="kms-related-item" aria-label={`Buka pengetahuan: ${asset.title}`}>
-              <img src={thumbnail} alt="" className="kms-related-thumb" />
+              <img src={thumbnail} alt="" className="kms-related-thumb" loading="lazy" decoding="async" />
               <span className="min-w-0 py-0.5">
                 <span className="flex items-center gap-1 text-xs font-semibold text-content-guide">{video ? <PlayCircle size={13} /> : <FileText size={13} />}{video ? "Video" : "Dokumen"}</span>
                 <span className="kms-related-title">{asset.title}</span>
-                <span className="mt-1 flex items-center gap-1 truncate text-xs text-content-secondary"><Building2 size={13} />{source}</span>
-                <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-content-secondary"><span className="inline-flex items-center gap-1"><CalendarDays size={13} />{formatDate(asset.created_at)}</span><span className="inline-flex items-center gap-1"><Eye size={13} />{asset.view_count || 0}</span></span>
+                <div className="mt-1 flex min-w-0 items-center gap-1 text-xs text-content-secondary"><Building2 className="shrink-0" size={13} />{asset.work_unit ? <WorkUnitLabel name={asset.work_unit.name} className="block truncate" /> : <span className="truncate">{source}</span>}</div>
+                <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-content-secondary"><span className="inline-flex items-center gap-1"><CalendarDays size={13} /><time dateTime={asset.created_at || undefined} title={`Tanggal unggah: ${formatIndonesianDate(asset.created_at, { shortMonth: true })}`}>{formatRelativeTime(asset.created_at, { useYang: true, invalid: "Waktu unggah tidak tersedia" })}</time></span><span className="inline-flex items-center gap-1"><Eye size={13} />{asset.view_count || 0}</span></span>
               </span>
             </Link>
           </li>

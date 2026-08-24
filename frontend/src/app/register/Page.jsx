@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Building2, Mail, UserPlus } from "lucide-react";
-import { Alert, Button, PasswordInput, TextField, useToast } from "@idds/react";
+import { Alert, Button, PasswordInput, Spinner, TextField, useToast } from "@idds/react";
 import AuthLayout from "../../components/AuthLayout";
-import { API_BASE_URL } from "../../lib/api";
+import { apiFetch } from "../../lib/api";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export default function RegisterPage() {
 
     setSaving(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users/register`, {
+      const response = await apiFetch("/api/users/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ full_name: form.fullName.trim(), email: form.email.trim(), department: form.department.trim() || null, password: form.password }),
@@ -65,7 +65,7 @@ export default function RegisterPage() {
           <PasswordInput size="sm" label="Kata sandi" placeholder="Minimal 8 karakter" autoComplete="new-password" value={form.password} onChange={updateField("password")} required />
           <PasswordInput size="sm" label="Konfirmasi kata sandi" placeholder="Ulangi kata sandi" autoComplete="new-password" value={form.confirmPassword} onChange={updateField("confirmPassword")} required />
         </div>
-        <Button type="submit" hierarchy="primary" size="md" className="kms-auth-submit kms-register-field-wide w-full justify-center" disabled={saving} prefixIcon={<UserPlus size={16} />}>{saving ? "Mendaftarkan..." : "Buat akun"}</Button>
+        <Button type="submit" hierarchy="primary" size="md" className="kms-auth-submit kms-register-field-wide w-full justify-center" disabled={saving} prefixIcon={saving ? <Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly /> : <UserPlus size={16} />}>{saving ? "Mendaftarkan..." : "Buat akun"}</Button>
       </form>
       <p className="kms-auth-note">Pendaftaran ini hanya membuat akun pengguna publik. Akun pegawai dikelola oleh administrator KMS Kemenhub.</p>
     </AuthLayout>

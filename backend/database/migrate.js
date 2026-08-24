@@ -10,6 +10,8 @@ const runMigrations = async () => {
     "migrations/005_discovery_security_foundation.sql",
     "migrations/006_remove_video_transcript.sql",
     "migrations/007_roles_content_cleanup.sql",
+    "migrations/008_allow_duplicate_asset_titles.sql",
+    "migrations/009_add_performance_indexes.sql",
   ];
   for (const migration of migrations) {
     await runSqlFile(migration);

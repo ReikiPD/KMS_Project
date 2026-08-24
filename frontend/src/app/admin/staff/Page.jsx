@@ -5,18 +5,22 @@ import {
   Badge,
   Button,
   Card,
-  InputSearch,
   Modal,
   Pagination,
   PasswordInput,
   SelectDropdown,
   Skeleton,
   TextField,
+  Tooltip,
 } from "@idds/react";
 import { BarChart3, Plus, Search, Trash2, Users } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
+import EmptyState from "../../../components/EmptyState";
+import MultipleSearchSelect from "../../../components/MultipleSearchSelect";
+import WorkUnitLabel from "../../../components/WorkUnitLabel";
 import useAdminView from "../../../hooks/useAdminView";
 import { apiFetch, currentUser, inputValue } from "../../../lib/api";
+import { queryToSearchSelections, searchSelectionsToQuery } from "../../../lib/search";
 
 const blankStaff = { fullName: "", email: "", workUnitId: "", password: "", confirmPassword: "", role: "pegawai" };
 const STAFF_PAGE_SIZE_OPTIONS = [10, 20, 50];
@@ -35,7 +39,7 @@ export default function StaffPage() {
 
   const [staff, setStaff] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit, totalItems: 0, totalPages: 0 });
-  const [queryInput, setQueryInput] = useState(activeQuery);
+  const [searchSelections, setSearchSelections] = useState(() => queryToSearchSelections(activeQuery));
   const [workUnits, setWorkUnits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [workUnitsLoading, setWorkUnitsLoading] = useState(true);
@@ -44,6 +48,7 @@ export default function StaffPage() {
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [memberToDelete, setMemberToDelete] = useState(null);
 
   const updateListParams = (updates) => {
     setSearchParams((current) => {
@@ -92,11 +97,11 @@ export default function StaffPage() {
 
   useEffect(() => { loadStaff(); }, [loadStaff]);
   useEffect(() => { loadWorkUnits(); }, []);
-  useEffect(() => { setQueryInput(activeQuery); }, [activeQuery]);
+  useEffect(() => { setSearchSelections(queryToSearchSelections(activeQuery)); }, [activeQuery]);
 
   const submitSearch = (event) => {
     event.preventDefault();
-    updateListParams({ q: queryInput.trim(), page: 1 });
+    updateListParams({ q: searchSelectionsToQuery(searchSelections), page: 1 });
   };
 
   const createStaff = async () => {
@@ -137,9 +142,6 @@ export default function StaffPage() {
   };
 
   const removeStaff = async (member) => {
-    const roleLabel = member.role === "pimpinan" ? "Pimpinan" : "Pegawai";
-    if (!window.confirm(`Nonaktifkan akun ${roleLabel} ${member.full_name}? Aset dan riwayatnya tetap tersimpan.`)) return;
-
     setDeleting(member.id);
     setError("");
     try {
@@ -148,6 +150,7 @@ export default function StaffPage() {
       if (!response.ok) throw new Error(result.error || "Gagal menonaktifkan akun kedinasan");
       if (staff.length === 1 && page > 1) updateListParams({ page: page - 1 });
       else await loadStaff();
+      setMemberToDelete(null);
     } catch (removeError) {
       setError(removeError.message);
     } finally {
@@ -194,15 +197,21 @@ export default function StaffPage() {
 
         <div className="border-b border-border-subtle bg-page-secondary/40 px-5 py-4">
           <form className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={submitSearch}>
-            <InputSearch
+            <MultipleSearchSelect
               label="Cari akun"
-              value={queryInput}
-              onChange={(value) => {
-                const nextValue = inputValue(value);
-                setQueryInput(nextValue);
-                if (!nextValue && activeQuery) updateListParams({ q: "", page: 1 });
+              selected={searchSelections}
+              onSelect={(values) => {
+                setSearchSelections(values);
+                if (!values.length && activeQuery) updateListParams({ q: "", page: 1 });
               }}
-              placeholder="Nama, email, unit kerja, atau role"
+              options={[
+                ...staff.map((member) => ({ group: "Nama Akun", label: member.full_name, value: member.full_name, description: "Nama pemilik akun" })),
+                ...staff.map((member) => ({ group: "Email", label: member.email, value: member.email, description: "Alamat email kedinasan" })),
+                ...staff.map((member) => ({ group: "Unit Kerja", label: member.department, value: member.department, description: "Unit atau departemen" })),
+                ...staff.map((member) => ({ group: "Role", label: member.role, value: member.role, description: "Hak akses akun" })),
+              ].filter((option) => option.value)}
+              placeholder="Ketik lalu pilih nama, email, unit, atau role"
+              helperText=""
             />
             <Button type="submit" hierarchy="secondary" prefixIcon={<Search size={16} />} className="w-full sm:w-auto">Cari</Button>
           </form>
@@ -212,31 +221,29 @@ export default function StaffPage() {
           <div className="space-y-3 p-5">{[1, 2, 3].map((item) => <Skeleton key={item} height="54px" rounded="md" />)}</div>
         ) : staff.length ? (
           <div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="bg-page-secondary text-xs uppercase tracking-wide text-content-secondary">
+            <div className="kms-admin-native-table-shell max-h-none rounded-none border-x-0">
+              <table className="kms-admin-native-table min-w-[720px] text-left">
+                <thead>
                   <tr><th className="px-5 py-3">Akun</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Unit / Departemen</th><th className="px-4 py-3 text-center">Aset</th><th className="px-4 py-3 text-center">Terbit</th><th className="px-4 py-3 text-center">Dilihat</th><th className="px-5 py-3 text-right">Aksi</th></tr>
                 </thead>
                 <tbody>
                   {staff.map((member) => (
-                    <tr key={member.id} className="border-t border-border-subtle">
+                    <tr key={member.id}>
                       <td className="px-5 py-3"><p className="font-semibold text-content-primary">{member.full_name}</p><p className="text-xs text-content-secondary">{member.email}</p></td>
                       <td className="px-4 py-3">
                         <Badge type="soft" variant={member.role === "pimpinan" ? "warning" : "info"}>
                           {member.role === "pimpinan" ? "Pimpinan" : "Pegawai"}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 text-content-secondary">{member.department || "—"}</td>
+                      <td className="px-4 py-3 text-content-secondary"><WorkUnitLabel name={member.department} fallback="—" /></td>
                       <td className="px-4 py-3 text-center">{member.asset_count || 0}</td>
                       <td className="px-4 py-3 text-center">{member.published_asset_count || 0}</td>
                       <td className="px-4 py-3 text-center">{member.total_view_count || 0}</td>
                       <td className="px-5 py-3">
                         <div className="flex justify-end gap-2">
-                          <Button hierarchy="tertiary" size="sm" prefixIcon={<BarChart3 size={15} />} onClick={() => openStaff(member)}>{isAdmin && member.role === "pegawai" ? "Buka mode" : "Lihat"}</Button>
+                          <Tooltip variant="basic" title={isAdmin && member.role === "pegawai" ? "Buka mode kerja Pegawai" : "Lihat dashboard akun"} placement="top" showArrow={true}><Button hierarchy="tertiary" size="sm" prefixIcon={<BarChart3 size={15} />} onClick={() => openStaff(member)}>{isAdmin && member.role === "pegawai" ? "Buka mode" : "Lihat"}</Button></Tooltip>
                           {isAdmin && ["pegawai", "pimpinan"].includes(member.role) && (
-                            <Button hierarchy="tertiary" size="sm" aria-label={`Nonaktifkan ${member.full_name}`} onClick={() => removeStaff(member)} disabled={deleting === member.id}>
-                              <Trash2 size={16} className="text-status-danger" />
-                            </Button>
+                            <Tooltip variant="basic" title="Nonaktifkan akun" placement="top" showArrow={true}><Button hierarchy="tertiary" size="sm" aria-label={`Nonaktifkan ${member.full_name}`} onClick={() => setMemberToDelete(member)} disabled={deleting === member.id}><Trash2 size={16} className="text-status-danger" /></Button></Tooltip>
                           )}
                         </div>
                       </td>
@@ -261,7 +268,7 @@ export default function StaffPage() {
             </div>
           </div>
         ) : (
-          <div className="px-5 py-12 text-center text-sm text-content-secondary">{activeQuery ? `Tidak ada akun yang cocok dengan “${activeQuery}”.` : "Belum ada akun kedinasan aktif."}</div>
+          <div className="p-5"><EmptyState className="kms-empty-state--compact" icon={Users} title={activeQuery ? "Akun tidak ditemukan" : "Belum ada akun kedinasan"} description={activeQuery ? `Tidak ada akun yang cocok dengan “${activeQuery}”.` : "Akun Pegawai atau Pimpinan yang aktif akan tampil di sini."} actionLabel={activeQuery ? "Hapus pencarian" : undefined} onAction={activeQuery ? () => updateListParams({ q: "", page: 1 }) : undefined} /></div>
         )}
       </Card>
 
@@ -281,6 +288,9 @@ export default function StaffPage() {
             <Button hierarchy="primary" onClick={createStaff} disabled={saving || workUnitsLoading}>{saving ? "Menyimpan..." : "Tambah akun"}</Button>
           </div>
         </div>
+      </Modal>
+      <Modal open={Boolean(memberToDelete)} onClose={() => !deleting && setMemberToDelete(null)} title="Nonaktifkan akun kedinasan" size="md">
+        <div className="space-y-5"><Alert variant="caution" title="Akun tidak dapat login setelah dinonaktifkan" message="Aset, komentar, dan riwayat tindakan tetap disimpan agar informasi organisasi tidak hilang." /><div className="rounded-lg bg-page-secondary p-4"><p className="font-semibold text-content-primary">{memberToDelete?.full_name}</p><p className="mt-1 text-sm text-content-secondary">{memberToDelete?.email}</p></div><div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button hierarchy="secondary" onClick={() => setMemberToDelete(null)} disabled={Boolean(deleting)}>Batal</Button><Button hierarchy="primary" className="!border-status-danger !bg-status-danger" onClick={() => removeStaff(memberToDelete)} disabled={Boolean(deleting)}>{deleting ? "Menonaktifkan…" : "Nonaktifkan akun"}</Button></div></div>
       </Modal>
     </div>
   );

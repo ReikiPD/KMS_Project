@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Building2, LogIn, Mail, ShieldCheck, User } from "lucide-react";
-import { Alert, Button, PasswordInput, TextField, useToast } from "@idds/react";
+import { Alert, Button, PasswordInput, Spinner, TextField, useToast } from "@idds/react";
 import AuthLayout from "../../components/AuthLayout";
-import { API_BASE_URL } from "../../lib/api";
+import { apiFetch } from "../../lib/api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -21,7 +21,7 @@ export default function LoginPage() {
     setError("");
     try {
       const isAdmin = loginType === "admin";
-      const response = await fetch(`${API_BASE_URL}/api/users/${isAdmin ? "admin/login" : "login"}`, {
+      const response = await apiFetch(`/api/users/${isAdmin ? "admin/login" : "login"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password, audience: loginType === "publik" ? "public" : "backoffice" }),
@@ -63,7 +63,7 @@ export default function LoginPage() {
       <form onSubmit={handleLogin} className="kms-auth-login-form">
         <TextField size="sm" label={loginType === "publik" ? "Alamat email" : "Email"} placeholder={loginType === "publik" ? "nama@email.com" : "nama@kemenhub.go.id"} type="email" autoComplete="email" value={email} onChange={setEmail} prefixIcon={<Mail size={16} />} required />
         <PasswordInput size="sm" label="Kata sandi" placeholder="Masukkan kata sandi" autoComplete="current-password" value={password} onChange={setPassword} required />
-        <Button type="submit" hierarchy="primary" size="md" className="kms-auth-submit w-full justify-center" disabled={loading} prefixIcon={<LogIn size={16} />}>{loading ? "Memproses..." : "Masuk"}</Button>
+        <Button type="submit" hierarchy="primary" size="md" className="kms-auth-submit w-full justify-center" disabled={loading} prefixIcon={loading ? <Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly /> : <LogIn size={16} />}>{loading ? "Memproses..." : "Masuk"}</Button>
       </form>
 
       {loginType === "pegawai" && <p className="kms-auth-note">Akun Pegawai dan Pimpinan diterbitkan oleh administrator KMS Kemenhub.</p>}

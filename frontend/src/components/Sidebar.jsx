@@ -11,6 +11,7 @@ import {
   Tags,
   Users,
 } from "lucide-react";
+import { Tooltip } from "@idds/react";
 import { SidebarContext } from "../contexts/SidebarContext";
 import { currentUser } from "../lib/api";
 import useAdminView from "../hooks/useAdminView";
@@ -37,6 +38,11 @@ const menuByRole = {
 };
 
 const employeeModeMenu = menuByRole.pegawai.filter((item) => item.path !== "/admin/activity");
+
+function CollapsedSidebarTooltip({ collapsed, title, children }) {
+  if (!collapsed) return children;
+  return <Tooltip variant="basic" title={title} placement="right" showArrow={true}>{children}</Tooltip>;
+}
 
 export default function Sidebar() {
   const { isSidebarOpen, isMobileSidebarOpen, toggleMobileSidebar } = useContext(SidebarContext);
@@ -77,25 +83,28 @@ export default function Sidebar() {
           <p className={`px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-content-tertiary ${collapsed ? "sr-only" : ""}`}>{isActingAsEmployee ? "Menu Pegawai" : "Menu utama"}</p>
           <nav className="mt-3 flex flex-col gap-1.5" aria-label="Menu utama backoffice">
             {menuItems.map(({ path, label, icon: Icon }) => (
-              <button
-                key={path}
-                type="button"
-                title={collapsed ? label : undefined}
-                onClick={() => handleNavigation(path)}
-                className={`kms-admin-nav-item ${isActive(path) ? "kms-admin-nav-item--active" : ""} ${collapsed ? "justify-center" : "justify-start"}`}
-              >
-                <Icon size={19} className="shrink-0" />
-                {!collapsed && <span className="ml-3 truncate">{label}</span>}
-              </button>
+              <CollapsedSidebarTooltip key={path} collapsed={collapsed} title={label}>
+                <button
+                  type="button"
+                  onClick={() => handleNavigation(path)}
+                  className={`kms-admin-nav-item ${isActive(path) ? "kms-admin-nav-item--active" : ""} ${collapsed ? "justify-center" : "justify-start"}`}
+                  aria-current={isActive(path) ? "page" : undefined}
+                >
+                  <Icon size={19} className="shrink-0" />
+                  {!collapsed && <span className="ml-3 truncate">{label}</span>}
+                </button>
+              </CollapsedSidebarTooltip>
             ))}
           </nav>
         </div>
         {isEmployeeContext && (
           <div className="border-t border-border-subtle p-3">
-            <button type="button" title={collapsed ? (isActingAsEmployee || isAdminViewingUser ? "Kembali ke Ruang Admin" : "Kembali ke Dashboard Pimpinan") : undefined} onClick={leaveEmployeeMode} className={`kms-admin-nav-item w-full ${collapsed ? "justify-center" : "justify-start"}`}>
-              <ArrowLeftFromLine size={19} className="shrink-0" />
-              {!collapsed && <span className="ml-3">{isActingAsEmployee || isAdminViewingUser ? "Kembali ke Admin" : "Kembali ke Pimpinan"}</span>}
-            </button>
+            <CollapsedSidebarTooltip collapsed={collapsed} title={isActingAsEmployee || isAdminViewingUser ? "Kembali ke Ruang Admin" : "Kembali ke Dashboard Pimpinan"}>
+              <button type="button" onClick={leaveEmployeeMode} className={`kms-admin-nav-item w-full ${collapsed ? "justify-center" : "justify-start"}`}>
+                <ArrowLeftFromLine size={19} className="shrink-0" />
+                {!collapsed && <span className="ml-3">{isActingAsEmployee || isAdminViewingUser ? "Kembali ke Admin" : "Kembali ke Pimpinan"}</span>}
+              </button>
+            </CollapsedSidebarTooltip>
           </div>
         )}
       </aside>

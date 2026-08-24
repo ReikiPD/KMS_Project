@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Alert, Avatar, Button, CardPlain, Skeleton } from "@idds/react";
 import { Mail, Pencil, UserRound } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
-import { API_BASE_URL, authHeaders, avatarUrl, currentUser } from "../../../lib/api";
+import WorkUnitLabel from "../../../components/WorkUnitLabel";
+import { apiFetch, avatarUrl, currentUser } from "../../../lib/api";
 
 const initials = (name) => (name || "KM").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 const displayDate = (value) => value ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(new Date(value)) : "-";
@@ -19,7 +20,7 @@ export default function ProfilePage() {
     const controller = new AbortController();
     const loadProfile = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users/profile`, { headers: authHeaders(), signal: controller.signal });
+        const response = await apiFetch("/api/users/profile", { auth: true, signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Gagal memuat profil");
         if (!controller.signal.aborted) setProfile(data);
@@ -51,7 +52,7 @@ export default function ProfilePage() {
         <dl className="mt-5 grid gap-3 sm:grid-cols-2">
           <div className="kms-profile-detail"><dt>Nama lengkap</dt><dd>{profile.full_name}</dd></div>
           <div className="kms-profile-detail"><dt className="flex items-center gap-1.5"><Mail size={14} /> Email</dt><dd>{profile.email}</dd></div>
-          <div className="kms-profile-detail"><dt>Unit / Departemen</dt><dd>{profile.department || "Belum diisi"}</dd></div>
+          <div className="kms-profile-detail"><dt>Unit / Departemen</dt><dd><WorkUnitLabel name={profile.department} fallback="Belum diisi" /></dd></div>
           <div className="kms-profile-detail"><dt>Bergabung sejak</dt><dd>{displayDate(profile.created_at)}</dd></div>
         </dl>
       </CardPlain>

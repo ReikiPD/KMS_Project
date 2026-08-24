@@ -5,7 +5,8 @@ import { Alert, Badge, Breadcrumb, Button, Skeleton, useToast } from "@idds/reac
 import CommentsSection from "../../components/CommentsSection";
 import RelatedKnowledgeList from "../../components/RelatedKnowledgeList";
 import VideoChapters from "../../components/VideoChapters";
-import { API_BASE_URL, authHeaders, uploadUrl } from "../../lib/api";
+import WorkUnitLabel from "../../components/WorkUnitLabel";
+import { apiFetch, uploadUrl } from "../../lib/api";
 
 const formatDate = (value) => value
   ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(new Date(value))
@@ -27,8 +28,8 @@ const getAssetDetail = (assetId) => {
   if (pending) return pending;
 
   const request = Promise.all([
-    fetch(`${API_BASE_URL}/api/assets/${assetId}`),
-    fetch(`${API_BASE_URL}/api/assets/${assetId}/related`),
+    apiFetch(`/api/assets/${assetId}`),
+    apiFetch(`/api/assets/${assetId}/related`),
   ])
     .then(async ([assetResponse, relatedResponse]) => {
       const assetData = await assetResponse.json();
@@ -49,7 +50,7 @@ const recordAssetView = (assetId) => {
   if (viewedAssetIds.has(assetId)) return Promise.resolve(null);
   viewedAssetIds.add(assetId);
 
-  return fetch(`${API_BASE_URL}/api/assets/${assetId}/view`, { method: "POST" })
+  return apiFetch(`/api/assets/${assetId}/view`, { method: "POST" })
     .then((response) => response.ok ? response.json() : null)
     .catch(() => null);
 };
@@ -70,7 +71,7 @@ function AssetContent({ asset }) {
     <section className="kms-detail-content-card rounded-2xl border border-stroke-secondary bg-page-primary p-6 md:p-8" aria-label="Tentang pengetahuan ini">
       {asset.content ? <div className="whitespace-pre-line text-base leading-8 text-content-primary">{asset.content}</div> : <p className="text-sm text-content-secondary">Belum ada isi tambahan untuk pengetahuan ini.</p>}
       <dl className="mt-7 grid gap-x-6 gap-y-3 border-t border-stroke-secondary pt-5 text-sm text-content-secondary sm:grid-cols-2">
-        {asset.work_unit && <div className="flex items-center gap-2"><Building2 size={16} aria-hidden="true" /><dt className="sr-only">Unit kerja</dt><dd>{asset.work_unit.name}</dd></div>}
+        {asset.work_unit && <div className="flex items-center gap-2"><Building2 size={16} aria-hidden="true" /><dt className="sr-only">Unit kerja</dt><dd><WorkUnitLabel name={asset.work_unit.name} /></dd></div>}
         {asset.author?.full_name && <div className="flex items-center gap-2"><UserRound size={16} aria-hidden="true" /><dt className="sr-only">Penerbit</dt><dd>{asset.author.full_name}</dd></div>}
         <div className="flex items-center gap-2"><Eye size={16} aria-hidden="true" /><dt className="sr-only">Jumlah dilihat</dt><dd>{asset.view_count || 0} kali dilihat</dd></div>
         <div className="flex items-center gap-2"><CalendarDays size={16} aria-hidden="true" /><dt className="sr-only">Tanggal terbit</dt><dd>{formatDate(asset.created_at)}</dd></div>
@@ -158,7 +159,7 @@ export default function DetailPage() {
 
   const copyShareLink = async () => {
     const shareUrl = new URL(`/detail/${id}`, window.location.origin).toString();
-    const recordShare = () => fetch(`${API_BASE_URL}/api/assets/${id}/share`, { method: "POST", headers: authHeaders() }).catch(() => {});
+    const recordShare = () => apiFetch(`/api/assets/${id}/share`, { method: "POST", auth: true }).catch(() => {});
     const copyToClipboard = async () => {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareUrl);

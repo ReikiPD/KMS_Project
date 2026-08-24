@@ -1,4 +1,61 @@
+# Dependencies
+**/node_modules/
+
+# Environment and local secrets
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Frontend build and tool caches
 frontend/dist/
+frontend/.vite/
+frontend/.cache/
+**/.turbo/
+coverage/
+
+# Runtime data: uploaded files are persisted and backed up outside Git
 backend/uploads/
-backend/.env
-frontend/.env
+
+# Logs and process files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.pid
+*.pid.lock
+
+# Database exports and local backups
+backups/
+*.backup
+*.dump
+*.sql.gz
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# Local certificates and private keys
+*.key
+*.p12
+*.pfx
+
+# Editors and operating systems
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

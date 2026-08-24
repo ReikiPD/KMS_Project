@@ -1,52 +1,72 @@
-import { useLayoutEffect } from "react";
-import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigationType } from "react-router-dom";
+import { lazy, Suspense, useLayoutEffect } from "react";
+import { BrowserRouter, Navigate, Outlet, Routes, Route, useLocation, useNavigationType } from "react-router-dom";
+import { Spinner } from "@idds/react";
 import SidebarProvider from "./contexts/SidebarProvider";
 import AdminViewProvider from "./contexts/AdminViewProvider";
+import ThemeProvider from "./contexts/ThemeProvider";
 import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
-import Page from "./app/Page";
-import LoginPage from "./app/login/Page";
-import RegisterPage from "./app/register/Page";
-import DashboardPage from "./app/admin/dashboard/Page";
-import CreateAssetPage from "./app/admin/assets/create/Page";
-import CategoryPage from "./app/admin/categories/Page";
-import WorkUnitPage from "./app/admin/work-units/Page";
-import AssetsPage from "./app/admin/assets/Page";
-import EditAssetPage from "./app/admin/assets/edit/Page";
-import AdminAssetDetailPage from "./app/admin/assets/detail/Page";
-import AssetRecoveryPage from "./app/admin/assets/recovery/Page";
-import ActivityPage from "./app/admin/activity/Page";
-import ProfilePage from "./app/admin/profile/Page";
-import EditProfilePage from "./app/admin/profile/edit/Page";
-import DetailPage from "./app/detail/Page";
-import StaffPage from "./app/admin/staff/Page";
-import ThemeController from "./components/ThemeController";
 import PublicHeader from "./components/PublicHeader";
 import PublicFooter from "./components/PublicFooter";
-import RequirePegawai from "./components/RequirePegawai";
-import RequireProfileAccess from "./components/RequireProfileAccess";
-import RequireBackoffice from "./components/RequireBackoffice";
-import RequireAdmin from "./components/RequireAdmin";
-import RequireAssetWriter from "./components/RequireAssetWriter";
-import OfflineNotice from "./components/OfflineNotice";
+import { OfflineNotice } from "./components/AppRuntime";
+import { RequireAssetWriter, RoleGuard } from "./components/RouteGuards";
 
-function AdminLayout({ children }) {
+const Page = lazy(() => import("./app/Page"));
+const LoginPage = lazy(() => import("./app/login/Page"));
+const RegisterPage = lazy(() => import("./app/register/Page"));
+const DashboardPage = lazy(() => import("./app/admin/dashboard/Page"));
+const CreateAssetPage = lazy(() => import("./app/admin/assets/create/Page"));
+const MasterDataPage = lazy(() => import("./app/admin/master-data/Page"));
+const AssetsPage = lazy(() => import("./app/admin/assets/Page"));
+const EditAssetPage = lazy(() => import("./app/admin/assets/edit/Page"));
+const AdminAssetDetailPage = lazy(() => import("./app/admin/assets/detail/Page"));
+const AssetRecoveryPage = lazy(() => import("./app/admin/assets/recovery/Page"));
+const ActivityPage = lazy(() => import("./app/admin/activity/Page"));
+const ProfilePage = lazy(() => import("./app/admin/profile/Page"));
+const EditProfilePage = lazy(() => import("./app/admin/profile/edit/Page"));
+const DetailPage = lazy(() => import("./app/detail/Page"));
+const StaffPage = lazy(() => import("./app/admin/staff/Page"));
+
+const BACKOFFICE_ROLES = ["pegawai", "pimpinan", "admin"];
+const PROFILE_ROLES = ["pegawai", "pimpinan"];
+
+function AdminLayout() {
   return (
-    <RequireBackoffice><AdminViewProvider><div className="kms-admin-shell flex h-dvh min-h-dvh flex-col overflow-hidden bg-page-secondary font-sans">
-      <Navbar />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar />
-        <main id="kms-main-content" className="flex-1 overflow-y-auto">{children}</main>
-      </div>
-    </div></AdminViewProvider></RequireBackoffice>
+    <RoleGuard roles={BACKOFFICE_ROLES}>
+      <AdminViewProvider>
+        <div className="kms-admin-shell flex h-dvh min-h-dvh flex-col overflow-hidden bg-page-secondary font-sans">
+          <Navbar />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <Sidebar />
+            <main id="kms-main-content" className="flex-1 overflow-y-auto">
+              <Outlet />
+            </main>
+          </div>
+        </div>
+      </AdminViewProvider>
+    </RoleGuard>
   );
 }
 
-function PublicLayout({ children }) {
+function PageLoading() {
+  return (
+    <div className="flex min-h-[16rem] items-center justify-center" role="status" aria-live="polite">
+      <Spinner
+        size={42}
+        borderWidth="medium"
+        color="primary"
+        title="Memuat halaman"
+        subtitle="Menyiapkan informasi yang Anda butuhkan."
+      />
+    </div>
+  );
+}
+
+function PublicLayout() {
   return (
     <div className="kms-public flex min-h-screen flex-col bg-page-secondary font-sans">
       <PublicHeader />
-      <main id="kms-main-content" className="flex-1">{children}</main>
+      <main id="kms-main-content" className="flex-1"><Outlet /></main>
       <PublicFooter />
     </div>
   );
@@ -74,31 +94,38 @@ function App() {
   return (
     <SidebarProvider>
       <BrowserRouter>
+        <ThemeProvider>
           <a href="#kms-main-content" className="kms-skip-link">Lewati ke konten utama</a>
-          <ThemeController />
           <ScrollToTopOnNewPage />
           <OfflineNotice />
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/" element={<PublicLayout><Page /></PublicLayout>} />
-            <Route path="/detail/:id" element={<PublicLayout><DetailPage /></PublicLayout>} />
-            <Route path="/library" element={<Navigate to="/" replace />} />
-            <Route path="/admin/dashboard" element={<AdminLayout><DashboardPage /></AdminLayout>} />
-            <Route path="/admin/profile" element={<AdminLayout><RequireProfileAccess><ProfilePage /></RequireProfileAccess></AdminLayout>} />
-            <Route path="/admin/profile/edit" element={<AdminLayout><RequireProfileAccess><EditProfilePage /></RequireProfileAccess></AdminLayout>} />
-            <Route path="/admin/profile/security" element={<Navigate to="/admin/profile/edit" replace />} />
-            <Route path="/admin/assets" element={<AdminLayout><AssetsPage /></AdminLayout>} />
-            <Route path="/admin/assets/recovery" element={<AdminLayout><RequireAdmin><AssetRecoveryPage /></RequireAdmin></AdminLayout>} />
-            <Route path="/admin/assets/create" element={<AdminLayout><RequireAssetWriter><CreateAssetPage /></RequireAssetWriter></AdminLayout>} />
-            <Route path="/admin/assets/:id" element={<AdminLayout><AdminAssetDetailPage /></AdminLayout>} />
-            <Route path="/admin/assets/edit/:id" element={<AdminLayout><RequireAssetWriter><EditAssetPage /></RequireAssetWriter></AdminLayout>} />
-            <Route path="/admin/comments" element={<Navigate to="/admin/activity" replace />} />
-            <Route path="/admin/activity" element={<AdminLayout><RequirePegawai><ActivityPage /></RequirePegawai></AdminLayout>} />
-            <Route path="/admin/staff" element={<AdminLayout><StaffPage /></AdminLayout>} />
-            <Route path="/admin/categories" element={<AdminLayout><RequireAdmin><CategoryPage /></RequireAdmin></AdminLayout>} />
-            <Route path="/admin/work-units" element={<AdminLayout><RequireAdmin><WorkUnitPage /></RequireAdmin></AdminLayout>} />
-          </Routes>
+          <Suspense fallback={<PageLoading />}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route element={<PublicLayout />}>
+                <Route index element={<Page />} />
+                <Route path="detail/:id" element={<DetailPage />} />
+              </Route>
+              <Route path="/library" element={<Navigate to="/" replace />} />
+              <Route path="/admin/comments" element={<Navigate to="/admin/activity" replace />} />
+              <Route path="admin" element={<AdminLayout />}>
+                <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="profile" element={<RoleGuard roles={PROFILE_ROLES}><ProfilePage /></RoleGuard>} />
+                <Route path="profile/edit" element={<RoleGuard roles={PROFILE_ROLES}><EditProfilePage /></RoleGuard>} />
+                <Route path="profile/security" element={<Navigate to="/admin/profile/edit" replace />} />
+                <Route path="assets" element={<AssetsPage />} />
+                <Route path="assets/recovery" element={<RoleGuard roles={["admin"]}><AssetRecoveryPage /></RoleGuard>} />
+                <Route path="assets/create" element={<RequireAssetWriter><CreateAssetPage /></RequireAssetWriter>} />
+                <Route path="assets/:id" element={<AdminAssetDetailPage />} />
+                <Route path="assets/edit/:id" element={<RequireAssetWriter><EditAssetPage /></RequireAssetWriter>} />
+                <Route path="activity" element={<RoleGuard roles={["pegawai"]}><ActivityPage /></RoleGuard>} />
+                <Route path="staff" element={<StaffPage />} />
+                <Route path="categories" element={<RoleGuard roles={["admin"]}><MasterDataPage type="category" /></RoleGuard>} />
+                <Route path="work-units" element={<RoleGuard roles={["admin"]}><MasterDataPage type="workUnit" /></RoleGuard>} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </ThemeProvider>
       </BrowserRouter>
     </SidebarProvider>
   );

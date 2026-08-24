@@ -10,6 +10,17 @@ const normalizeText = (value, maxLength) => {
   return normalized.length <= maxLength ? normalized : null;
 };
 
+const getSearchTerms = (value, maxTerms = 8) => {
+  if (typeof value !== "string") return [];
+  const seen = new Set();
+  return value.trim().split(/[\s,]+/).filter(Boolean).filter((term) => {
+    const normalized = term.toLocaleLowerCase("id-ID");
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  }).slice(0, maxTerms);
+};
+
 const normalizeEmail = (value) => {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
@@ -136,10 +147,11 @@ const getStaff = async (req, res) => {
       values.push(req.user.id);
       filters.push(`u.id <> $${values.length}`);
     }
-    if (q) {
-      values.push(`%${q}%`);
-      filters.push(`(u.full_name ILIKE $${values.length} OR u.email ILIKE $${values.length} OR COALESCE(u.department, '') ILIKE $${values.length} OR u.role ILIKE $${values.length})`);
-    }
+    getSearchTerms(q).forEach((term) => {
+      values.push(`%${term}%`);
+      const parameter = `$${values.length}`;
+      filters.push(`(u.full_name ILIKE ${parameter} OR u.email ILIKE ${parameter} OR COALESCE(u.department, '') ILIKE ${parameter} OR u.role ILIKE ${parameter})`);
+    });
 
     let paginationClause = "";
     if (usePagination) {
@@ -328,4 +340,42 @@ const updatePassword = async (req, res) => {
   }
 };
 
-module.exports = { registerUser, loginUser, loginAdmin, getProfile, updateProfile, updateAvatar, updatePassword, getStaff, createStaff, deleteStaff };
+const getAuditLogs = async (req, res) => {
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, 50)
+    : 10;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, action, target_type, target_id, metadata, created_at
+       FROM audit_logs
+       WHERE actor_id = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      [req.user.id, limit],
+    );
+    return res.json({ data: rows });
+  } catch (error) {
+    console.error("Error fetching personal audit logs:", error);
+    return res.status(500).json({ error: "Gagal memuat riwayat tindakan" });
+  }
+};
+
+const deleteAuditLogs = async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM audit_logs WHERE actor_id = $1",
+      [req.user.id],
+    );
+    return res.json({
+      message: "Riwayat tindakan berhasil dihapus",
+      deletedCount: result.rowCount,
+    });
+  } catch (error) {
+    console.error("Error deleting personal audit logs:", error);
+    return res.status(500).json({ error: "Gagal menghapus riwayat tindakan" });
+  }
+};
+
+module.exports = { registerUser, loginUser, loginAdmin, getProfile, updateProfile, updateAvatar, updatePassword, getStaff, createStaff, deleteStaff, getAuditLogs, deleteAuditLogs };

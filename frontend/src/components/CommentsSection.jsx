@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MessageCircle, Pencil, Reply, Send, Trash2 } from "lucide-react";
 import { Alert, Avatar, Button, Card, Skeleton, TextArea, useToast } from "@idds/react";
-import { API_BASE_URL, authHeaders, avatarUrl, currentUser } from "../lib/api";
+import { apiFetch, avatarUrl, currentUser } from "../lib/api";
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -142,7 +142,7 @@ export default function CommentsSection({ assetId, canModerate = false }) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/assets/${assetId}/comments`);
+      const response = await apiFetch(`/api/assets/${assetId}/comments`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Gagal memuat komentar");
       setComments(result.data || []);
@@ -158,11 +158,11 @@ export default function CommentsSection({ assetId, canModerate = false }) {
     loadComments();
   }, [loadComments]);
 
-  const request = async (url, options, successMessage) => {
-    setActionId(url);
+  const request = async (path, options, successMessage) => {
+    setActionId(path);
     setError("");
     try {
-      const response = await fetch(url, options);
+      const response = await apiFetch(path, { ...options, auth: true });
       const result = response.status === 204 ? null : await response.json();
       if (!response.ok) throw new Error(result?.error || "Komentar tidak dapat diproses");
       await loadComments();
@@ -178,10 +178,10 @@ export default function CommentsSection({ assetId, canModerate = false }) {
 
   const createComment = async (content, parentId = null) => {
     const completed = await request(
-      `${API_BASE_URL}/api/assets/${assetId}/comments`,
+      `/api/assets/${assetId}/comments`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, ...(parentId ? { parentId } : {}) }),
       },
       parentId ? "Balasan berhasil dikirim" : "Komentar berhasil dikirim",
@@ -206,8 +206,8 @@ export default function CommentsSection({ assetId, canModerate = false }) {
       return false;
     }
     const completed = await request(
-      `${API_BASE_URL}/api/assets/${assetId}/comments/${commentId}`,
-      { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ content }) },
+      `/api/assets/${assetId}/comments/${commentId}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) },
       "Komentar berhasil diubah",
     );
     if (completed) setEditingId(null);
@@ -217,8 +217,8 @@ export default function CommentsSection({ assetId, canModerate = false }) {
   const handleDelete = async (commentId, moderation = false) => {
     if (!window.confirm(`${moderation ? "Sembunyikan" : "Hapus"} komentar ini? Balasan yang ada akan tetap ditampilkan.`)) return;
     await request(
-      moderation ? `${API_BASE_URL}/api/assets/admin/${assetId}/comments/${commentId}` : `${API_BASE_URL}/api/assets/${assetId}/comments/${commentId}`,
-      { method: "DELETE", headers: authHeaders() },
+      moderation ? `/api/assets/admin/${assetId}/comments/${commentId}` : `/api/assets/${assetId}/comments/${commentId}`,
+      { method: "DELETE" },
       moderation ? "Komentar berhasil disembunyikan" : "Komentar berhasil dihapus",
     );
   };

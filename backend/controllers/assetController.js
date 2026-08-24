@@ -1,7 +1,29 @@
 const pool = require("../database/db");
+const fs = require("fs/promises");
+const path = require("path");
 const { createNotification } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
-const { extractPdfText } = require("../services/mediaService");
+const { extractPdfText, uploadsDirectory } = require("../services/mediaService");
+
+const PUBLIC_ASSET_JOINS = `
+  FROM knowledge_assets a
+  LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
+  LEFT JOIN categories c ON a.category_id = c.id
+  LEFT JOIN work_units w ON a.work_unit_id = w.id
+`;
+
+const PUBLIC_ASSET_RELATIONS = `
+  CASE WHEN u.id IS NULL
+    THEN json_build_object('id', NULL, 'full_name', 'Pegawai tidak aktif', 'department', NULL)
+    ELSE json_build_object('id', u.id, 'full_name', u.full_name, 'department', u.department)
+  END AS author,
+  CASE WHEN c.id IS NULL THEN NULL
+    ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug)
+  END AS category,
+  CASE WHEN w.id IS NULL THEN NULL
+    ELSE json_build_object('id', w.id, 'name', w.name)
+  END AS work_unit
+`;
 
 const PUBLIC_ASSET_SELECT = `
   SELECT
@@ -20,26 +42,54 @@ const PUBLIC_ASSET_SELECT = `
     a.view_count,
     a.created_at,
     a.updated_at,
-    CASE WHEN u.id IS NULL
-      THEN json_build_object('id', NULL, 'full_name', 'Pegawai tidak aktif', 'department', NULL)
-      ELSE json_build_object('id', u.id, 'full_name', u.full_name, 'department', u.department)
-    END AS author,
-    CASE WHEN c.id IS NULL THEN NULL
-      ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug)
-    END AS category,
-    CASE WHEN w.id IS NULL THEN NULL
-      ELSE json_build_object('id', w.id, 'name', w.name)
-    END AS work_unit
-  FROM knowledge_assets a
-  LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
-  LEFT JOIN categories c ON a.category_id = c.id
-  LEFT JOIN work_units w ON a.work_unit_id = w.id
+    ${PUBLIC_ASSET_RELATIONS}
+  ${PUBLIC_ASSET_JOINS}
 `;
+
+const PUBLIC_ASSET_CARD_SELECT = `
+  SELECT
+    a.id,
+    a.title,
+    a.slug,
+    a.asset_type,
+    a.file_url,
+    a.thumbnail_url,
+    a.view_count,
+    a.created_at,
+    ${PUBLIC_ASSET_RELATIONS}
+  ${PUBLIC_ASSET_JOINS}
+`;
+
+const PUBLIC_SEARCH_VECTOR = `to_tsvector('simple',
+  COALESCE(a.title, '') || ' ' ||
+  COALESCE(a.content, '') || ' ' ||
+  COALESCE(a.extracted_text, '') || ' ' ||
+  CASE
+    WHEN a.asset_type = 'video' THEN 'video mp4 webm ogg'
+    ELSE 'dokumen document pdf file'
+  END || ' ' ||
+  COALESCE(a.file_url, '') || ' ' ||
+  COALESCE(c.name, '') || ' ' ||
+  COALESCE(w.name, '') || ' ' ||
+  COALESCE(u.full_name, '')
+)`;
 
 const getPositiveInteger = (value, fallback, max) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
+};
+
+const getSearchTerms = (value, maxTerms = 8) => {
+  if (typeof value !== "string") return [];
+  const candidates = value.match(/[\p{L}\p{N}]+/gu) || [];
+  const seen = new Set();
+  return candidates.filter((term) => {
+    const normalized = term.toLocaleLowerCase("id-ID");
+    if (seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  }).slice(0, maxTerms);
 };
 
 const DASHBOARD_PERIODS = new Set(["all", "7d", "30d", "90d", "year", "custom"]);
@@ -103,17 +153,26 @@ const getTrendRange = (period) => {
   return { startDate: dateToIsoDay(trendStart), endExclusive: dateToIsoDay(addUtcDays(trendEnd, 1)), unit: "month", label: "Bulanan" };
 };
 
+const getPreviousDashboardRange = (period) => {
+  if (!period.hasRange) return null;
+  const currentStart = new Date(`${period.startDate}T00:00:00.000Z`);
+  const currentEnd = new Date(`${period.endExclusive}T00:00:00.000Z`);
+  const duration = currentEnd.getTime() - currentStart.getTime();
+  const previousStart = new Date(currentStart.getTime() - duration);
+  return { startDate: dateToIsoDay(previousStart), endExclusive: period.startDate };
+};
+
 const buildPublicFilters = ({ q, categoryId, workUnitId }) => {
   const values = [];
   const filters = ["a.is_published = TRUE", "a.deleted_at IS NULL"];
-  const searchTerm = typeof q === "string" ? q.trim() : "";
+  const rawSearchTerm = typeof q === "string" ? q.trim() : "";
+  const searchTerm = getSearchTerms(rawSearchTerm).join(" ");
 
-  if (searchTerm.length >= 3) {
+  if (rawSearchTerm.length >= 3 && searchTerm) {
     values.push(searchTerm);
     const parameter = `$${values.length}`;
     filters.push(`(
-      to_tsvector('simple', COALESCE(a.title, '') || ' ' || COALESCE(a.content, '') || ' ' || COALESCE(a.extracted_text, ''))
-        @@ websearch_to_tsquery('simple', ${parameter})
+      ${PUBLIC_SEARCH_VECTOR} @@ plainto_tsquery('simple', ${parameter})
     )`);
   }
 
@@ -133,7 +192,7 @@ const buildPublicFilters = ({ q, categoryId, workUnitId }) => {
 };
 
 const ASSET_TYPES = new Set(["document", "video"]);
-const fileExtension = (value = "") => value.split(".").pop()?.toLowerCase() || "";
+const fileExtension = (value) => (typeof value === "string" ? value : "").split(".").pop()?.toLowerCase() || "";
 const fileKind = (file, fileName = "") => {
   const mimeType = file?.mimetype || "";
   const extension = fileExtension(file?.originalname || fileName);
@@ -177,14 +236,14 @@ const slugify = (value) => value
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/(^-|-$)+/g, "") || "draft";
 
-const getAvailableSlug = async (value, excludedId = null) => {
+const getAvailableSlug = async (value, excludedId = null, queryable = pool) => {
   const baseSlug = slugify(value).slice(0, 240);
   let sequence = 1;
 
   while (sequence <= 1000) {
     const suffix = sequence === 1 ? "" : `-${sequence}`;
     const candidate = `${baseSlug.slice(0, 255 - suffix.length)}${suffix}`;
-    const { rows } = await pool.query(
+    const { rows } = await queryable.query(
       `SELECT 1 FROM knowledge_assets
        WHERE slug = $1 AND deleted_at IS NULL
          AND ($2::integer IS NULL OR id <> $2)
@@ -196,6 +255,57 @@ const getAvailableSlug = async (value, excludedId = null) => {
   }
 
   throw new Error("Tidak dapat membuat slug aset yang unik");
+};
+
+const getAssetIds = (value, maxItems = 100) => {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => Number.parseInt(item, 10)).filter((item) => Number.isInteger(item) && item > 0))]
+    .slice(0, maxItems);
+};
+
+const localUploadName = (value) => {
+  if (!value || typeof value !== "string" || /^https?:\/\//i.test(value)) return null;
+  const normalized = value.split(/[?#]/, 1)[0].replace(/\\/g, "/");
+  const name = path.basename(normalized);
+  return name && name !== "." && path.extname(name) ? name : null;
+};
+
+const removeUnreferencedUploads = async (values) => {
+  const candidates = [...new Set(values.map(localUploadName).filter(Boolean))];
+  const deleted = [];
+  const failed = [];
+  let referencedFiles;
+
+  try {
+    const [assetReferences, avatarReferences] = await Promise.all([
+      pool.query("SELECT file_url, thumbnail_url FROM knowledge_assets"),
+      pool.query("SELECT avatar_url FROM users"),
+    ]);
+    referencedFiles = new Set([
+      ...assetReferences.rows.flatMap((asset) => [asset.file_url, asset.thumbnail_url]),
+      ...avatarReferences.rows.map((user) => user.avatar_url),
+    ].map(localUploadName).filter(Boolean));
+  } catch (error) {
+    return {
+      deleted,
+      failed: candidates.map((fileName) => ({ fileName, error: `Pemeriksaan referensi gagal: ${error.message}` })),
+    };
+  }
+
+  for (const fileName of candidates) {
+    try {
+      if (referencedFiles.has(fileName)) continue;
+
+      const target = path.resolve(uploadsDirectory, fileName);
+      if (path.dirname(target) !== path.resolve(uploadsDirectory)) throw new Error("Target file berada di luar direktori unggahan");
+      await fs.unlink(target);
+      deleted.push(fileName);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      failed.push({ fileName, error: error.message });
+    }
+  }
+  return { deleted, failed };
 };
 
 const getRequestedAuthorId = (req, source = req.query.authorId) => {
@@ -278,6 +388,42 @@ const getExtractedText = async (assetType, uploadedFile, current = {}) => {
   return current.extracted_text || "";
 };
 
+const DRAFT_VALIDATION_ERROR_PREFIXES = [
+  "Admin wajib memilih pegawai",
+  "Pegawai kontributor",
+  "Durasi video",
+  "Bab “",
+  "Waktu setiap bab",
+];
+
+const sendDraftFailure = (res, error, fallbackMessage) => {
+  console.error(fallbackMessage, {
+    message: error.message,
+    code: error.code,
+    constraint: error.constraint,
+    detail: error.detail,
+  });
+
+  if (error.code === "23505") {
+    if (error.constraint === "unique_active_slug") {
+      return res.status(409).json({ error: "Alamat draf mengalami konflik. Coba simpan kembali." });
+    }
+    return res.status(409).json({ error: "Draf mengalami konflik dengan data aktif lain." });
+  }
+
+  if (error.code === "23503") {
+    return res.status(400).json({ error: "Kontributor, kategori, atau unit kerja yang dipilih sudah tidak tersedia." });
+  }
+
+  if (DRAFT_VALIDATION_ERROR_PREFIXES.some((prefix) => error.message?.startsWith(prefix))) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const payload = { error: fallbackMessage };
+  if (process.env.NODE_ENV !== "production") payload.detail = error.message;
+  return res.status(500).json(payload);
+};
+
 // ============================================================================
 // BAGIAN 1: KNOWLEDGE ASSETS (ASET PENGETAHUAN)
 // ============================================================================
@@ -296,28 +442,30 @@ const getHomepageAssets = async (req, res) => {
     ? "relevansi"
     : (sortOptions[req.query.sort] ? req.query.sort : (searchTerm.length >= 3 ? "relevansi" : "terbaru"));
   const orderClause = sort === "relevansi"
-    ? `ts_rank(to_tsvector('simple', COALESCE(a.title, '') || ' ' || COALESCE(a.content, '') || ' ' || COALESCE(a.extracted_text, '')), websearch_to_tsquery('simple', $1)) DESC, a.created_at DESC, a.id DESC`
+    ? `ts_rank(${PUBLIC_SEARCH_VECTOR}, plainto_tsquery('simple', $1)) DESC, a.created_at DESC, a.id DESC`
     : sortOptions[sort];
 
   try {
-    const countQuery = `SELECT COUNT(*) FROM knowledge_assets a WHERE ${whereClause}`;
-    const countResult = await pool.query(countQuery, values);
-    const totalItems = Number.parseInt(countResult.rows[0].count, 10);
-    const totalPages = Math.ceil(totalItems / limit);
-
     const paginationValues = [...values, limit, offset];
     const limitParameter = `$${paginationValues.length - 1}`;
     const offsetParameter = `$${paginationValues.length}`;
     const query = `
-      ${PUBLIC_ASSET_SELECT}
+      ${PUBLIC_ASSET_CARD_SELECT.replace("SELECT", "SELECT COUNT(*) OVER()::int AS total_count,")}
       WHERE ${whereClause}
       ORDER BY ${orderClause}
       LIMIT ${limitParameter} OFFSET ${offsetParameter}
     `;
     const { rows } = await pool.query(query, paginationValues);
+    let totalItems = rows[0]?.total_count || 0;
+    if (!rows.length && page > 1) {
+      const countResult = await pool.query(`SELECT COUNT(*)::int AS total ${PUBLIC_ASSET_JOINS} WHERE ${whereClause}`, values);
+      totalItems = countResult.rows[0]?.total || 0;
+    }
+    const data = rows.map(({ total_count: _totalCount, ...asset }) => asset);
+    const totalPages = Math.ceil(totalItems / limit);
 
     res.json({
-      data: rows,
+      data,
       pagination: { totalItems, totalPages, currentPage: page, limit },
     });
   } catch (error) {
@@ -329,7 +477,7 @@ const getHomepageAssets = async (req, res) => {
 const getFeaturedAssets = async (_req, res) => {
   try {
     const query = `
-      ${PUBLIC_ASSET_SELECT}
+      ${PUBLIC_ASSET_CARD_SELECT}
       WHERE a.is_published = TRUE
         AND a.is_featured = TRUE
         AND a.deleted_at IS NULL
@@ -349,23 +497,74 @@ const getAdminAssets = async (req, res) => {
   if (scope.error) return res.status(403).json({ error: scope.error });
   try {
     const values = [];
-    const authorFilter = scope.authorId ? ` AND a.author_id = $${values.push(scope.authorId)}` : "";
-    const { rows } = await pool.query(`
-      SELECT a.id, a.title, a.asset_type, a.is_published, a.created_at, a.updated_at,
-             a.content, a.thumbnail_url, a.file_url, a.category_id, a.work_unit_id,
+    const filters = ["a.deleted_at IS NULL"];
+    if (scope.authorId) filters.push(`a.author_id = $${values.push(scope.authorId)}`);
+
+    const paginated = req.query.paginated === "true";
+    if (paginated) {
+      for (const term of getSearchTerms(req.query.q)) {
+        const parameter = `$${values.push(`%${term}%`)}`;
+        filters.push(`CONCAT_WS(' ', a.title, a.content, c.name, w.name, u.full_name,
+          CASE WHEN a.asset_type = 'video' THEN 'video mp4' ELSE 'dokumen pdf' END,
+          CASE WHEN a.is_published THEN 'terbit dipublikasikan' ELSE 'draf' END
+        ) ILIKE ${parameter}`);
+      }
+    }
+
+    const page = getPositiveInteger(req.query.page, 1, 100000);
+    const limit = getPositiveInteger(req.query.limit, 10, 50);
+    const sortFields = {
+      title: "a.title",
+      asset_type: "a.asset_type",
+      is_published: "a.is_published",
+      created_at: "a.created_at",
+    };
+    const sortField = sortFields[req.query.sortField] || "a.updated_at";
+    const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
+    const select = `
+      SELECT ${paginated ? "COUNT(*) OVER()::int AS total_count," : ""}
+             a.id, a.title, a.asset_type, a.is_published, a.created_at, a.updated_at,
+             ${paginated ? "LEFT(a.content, 360)" : "a.content"} AS content,
+             a.thumbnail_url, a.file_url, a.category_id, a.work_unit_id,
              c.name AS category_name, w.name AS work_unit_name,
              a.author_id, COALESCE(u.full_name, 'Pegawai tidak aktif') AS author_name
       FROM knowledge_assets a
       LEFT JOIN categories c ON a.category_id = c.id
       LEFT JOIN work_units w ON a.work_unit_id = w.id
       LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
-      WHERE a.deleted_at IS NULL${authorFilter}
-      ORDER BY a.updated_at DESC, a.id DESC
-    `, values);
-    res.json(rows.map((asset) => ({ ...asset, quality: buildAssetQuality(asset) })));
+      WHERE ${filters.join(" AND ")}
+      ORDER BY ${sortField} ${sortOrder}, a.id ${sortOrder}`;
+
+    if (!paginated) {
+      const { rows } = await pool.query(select, values);
+      return res.json(rows.map((asset) => ({ ...asset, quality: buildAssetQuality(asset) })));
+    }
+
+    const listValues = [...values, limit, (page - 1) * limit];
+    const { rows } = await pool.query(
+      `${select} LIMIT $${listValues.length - 1} OFFSET $${listValues.length}`,
+      listValues,
+    );
+    let totalItems = rows[0]?.total_count || 0;
+    if (!rows.length && page > 1) {
+      const countResult = await pool.query(`
+        SELECT COUNT(*)::int AS total
+        FROM knowledge_assets a
+        LEFT JOIN categories c ON a.category_id = c.id
+        LEFT JOIN work_units w ON a.work_unit_id = w.id
+        LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
+        WHERE ${filters.join(" AND ")}`,
+      values);
+      totalItems = countResult.rows[0]?.total || 0;
+    }
+    const data = rows.map(({ total_count: _totalCount, ...asset }) => ({ ...asset, quality: buildAssetQuality(asset) }));
+    return res.json({
+      data,
+      pagination: { currentPage: page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
+    });
   } catch (error) {
     console.error("Error fetching admin assets:", error);
-    res.status(500).json({ error: "Gagal mengambil data aset backoffice" });
+    return res.status(500).json({ error: "Gagal mengambil data aset backoffice" });
   }
 };
 
@@ -437,32 +636,27 @@ const restoreAsset = async (req, res) => {
   if (!Number.isInteger(assetId) || assetId < 1) return res.status(400).json({ error: "ID aset tidak valid" });
 
   try {
+    const scope = getRequestedAuthorId(req, req.body?.authorId);
+    if (scope.error) return res.status(403).json({ error: scope.error });
     const currentResult = await pool.query(
-      "SELECT id, title, slug, is_published FROM knowledge_assets WHERE id = $1 AND deleted_at IS NOT NULL",
-      [assetId],
+      `SELECT id, title, slug, is_published, author_id FROM knowledge_assets
+       WHERE id = $1 AND deleted_at IS NOT NULL${scope.authorId ? " AND author_id = $2" : ""}`,
+      scope.authorId ? [assetId, scope.authorId] : [assetId],
     );
     const current = currentResult.rows[0];
     if (!current) return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah dipulihkan" });
 
-    const conflictResult = await pool.query(
-      `SELECT id FROM knowledge_assets
-       WHERE deleted_at IS NULL AND id <> $1
-         AND (LOWER(title) = LOWER($2) OR slug = $3)
-       LIMIT 1`,
-      [assetId, current.title, current.slug],
-    );
-    if (conflictResult.rows[0]) {
-      return res.status(409).json({ error: "Aset belum dapat dipulihkan karena judul atau alamatnya sudah digunakan aset aktif lain" });
-    }
+    const restoredSlug = await getAvailableSlug(current.slug || current.title, assetId);
 
     const { rows } = await pool.query(
       `UPDATE knowledge_assets
        SET deleted_at = NULL,
            is_published = FALSE,
+           slug = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND deleted_at IS NOT NULL
        RETURNING id, title, asset_type, is_published, author_id, updated_at`,
-      [assetId],
+      [assetId, restoredSlug],
     );
     if (!rows[0]) return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah dipulihkan" });
 
@@ -476,9 +670,124 @@ const restoreAsset = async (req, res) => {
     return res.json({ message: "Aset berhasil dipulihkan sebagai draf", asset: rows[0] });
   } catch (error) {
     console.error("Error restoring asset:", error);
-    if (error.code === "23505") return res.status(409).json({ error: "Aset belum dapat dipulihkan karena judul atau alamatnya sudah digunakan" });
+    if (error.code === "23505") return res.status(409).json({ error: "Alamat aset mengalami konflik saat dipulihkan. Coba kembali." });
     return res.status(500).json({ error: "Gagal memulihkan aset" });
   }
+};
+
+const restoreAssetsBulk = async (req, res) => {
+  const assetIds = getAssetIds(req.body?.ids);
+  if (!assetIds.length) return res.status(400).json({ error: "Pilih minimal satu aset yang akan dipulihkan" });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const currentResult = await client.query(
+      `SELECT id, title, slug, is_published, author_id
+       FROM knowledge_assets
+       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL
+       ORDER BY id
+       FOR UPDATE`,
+      [assetIds],
+    );
+    if (!currentResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah diproses" });
+    }
+
+    const restored = [];
+    for (const asset of currentResult.rows) {
+      const restoredSlug = await getAvailableSlug(asset.slug || asset.title, asset.id, client);
+      const { rows } = await client.query(
+        `UPDATE knowledge_assets
+         SET deleted_at = NULL, is_published = FALSE, slug = $2, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND deleted_at IS NOT NULL
+         RETURNING id, title, asset_type, is_published, author_id, updated_at`,
+        [asset.id, restoredSlug],
+      );
+      if (rows[0]) restored.push(rows[0]);
+    }
+    await client.query("COMMIT");
+
+    await recordAudit({
+      ...auditActor(req),
+      action: "asset.bulk_restored",
+      targetType: "asset_batch",
+      metadata: { ids: restored.map((asset) => asset.id), count: restored.length, restoredAsDraft: true },
+    });
+    return res.json({
+      message: `${restored.length} aset berhasil dipulihkan sebagai draf`,
+      data: restored,
+      skippedIds: assetIds.filter((id) => !restored.some((asset) => asset.id === id)),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Error restoring assets in bulk:", error);
+    return res.status(500).json({ error: "Gagal memulihkan aset terpilih" });
+  } finally {
+    client.release();
+  }
+};
+
+const permanentlyDeleteAssets = async (req, res) => {
+  const assetIds = getAssetIds(req.body?.ids);
+  if (!assetIds.length) return res.status(400).json({ error: "Pilih minimal satu aset yang akan dihapus permanen" });
+  if (req.body?.confirmation !== "HAPUS PERMANEN") {
+    return res.status(400).json({ error: "Konfirmasi penghapusan permanen tidak sesuai" });
+  }
+
+  const client = await pool.connect();
+  let deletedAssets = [];
+  try {
+    await client.query("BEGIN");
+    const currentResult = await client.query(
+      `SELECT id, title, file_url, thumbnail_url
+       FROM knowledge_assets
+       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL
+       ORDER BY id
+       FOR UPDATE`,
+      [assetIds],
+    );
+    if (!currentResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah diproses" });
+    }
+    deletedAssets = currentResult.rows;
+    await client.query(
+      "DELETE FROM knowledge_assets WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL",
+      [deletedAssets.map((asset) => asset.id)],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Error permanently deleting assets:", error);
+    return res.status(500).json({ error: "Gagal menghapus aset secara permanen" });
+  } finally {
+    client.release();
+  }
+
+  const uploadCleanup = await removeUnreferencedUploads(
+    deletedAssets.flatMap((asset) => [asset.file_url, asset.thumbnail_url]),
+  );
+  await recordAudit({
+    ...auditActor(req),
+    action: "asset.permanently_deleted",
+    targetType: "asset_batch",
+    metadata: {
+      ids: deletedAssets.map((asset) => asset.id),
+      titles: deletedAssets.map((asset) => asset.title),
+      count: deletedAssets.length,
+      deletedFiles: uploadCleanup.deleted,
+      fileCleanupFailures: uploadCleanup.failed,
+    },
+  });
+
+  return res.json({
+    message: `${deletedAssets.length} aset dihapus permanen`,
+    deletedIds: deletedAssets.map((asset) => asset.id),
+    skippedIds: assetIds.filter((id) => !deletedAssets.some((asset) => asset.id === id)),
+    fileCleanup: { deleted: uploadCleanup.deleted.length, failed: uploadCleanup.failed.length },
+  });
 };
 
 const getAdminDashboard = async (req, res) => {
@@ -487,6 +796,7 @@ const getAdminDashboard = async (req, res) => {
   const period = getDashboardPeriod(req.query);
   if (period.error) return res.status(400).json({ error: period.error });
   const trend = getTrendRange(period);
+  const previousPeriod = getPreviousDashboardRange(period);
 
   try {
     const scopedValues = period.hasRange ? [period.startDate, period.endExclusive] : [];
@@ -541,6 +851,22 @@ const getAdminDashboard = async (req, res) => {
         AND a.is_published = TRUE AND a.deleted_at IS NULL AND a.created_at >= $1::date AND a.created_at < $2::date${trendAuthorFilter}
       GROUP BY b.bucket_start ORDER BY b.bucket_start ASC`;
     const personalAuthorId = scope.authorId || (req.user.role === "pegawai" ? req.user.id : null);
+    const previousValues = previousPeriod
+      ? [previousPeriod.startDate, previousPeriod.endExclusive, ...(scope.authorId ? [scope.authorId] : [])]
+      : [];
+    const previousOrganizationPromise = previousPeriod ? pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE a.is_published = TRUE)::int AS published_asset_count,
+        COUNT(*) FILTER (WHERE a.is_published = TRUE AND a.asset_type <> 'video')::int AS document_count,
+        COUNT(*) FILTER (WHERE a.is_published = TRUE AND a.asset_type = 'video')::int AS video_count,
+        (SELECT COUNT(v.id)::int FROM asset_views v
+         INNER JOIN knowledge_assets av ON av.id = v.asset_id
+         WHERE av.is_published = TRUE AND av.deleted_at IS NULL
+           AND v.created_at >= $1::date AND v.created_at < $2::date${scope.authorId ? " AND av.author_id = $3" : ""}) AS total_view_count
+      FROM knowledge_assets a
+      WHERE a.deleted_at IS NULL
+        AND a.created_at >= $1::date AND a.created_at < $2::date${scope.authorId ? " AND a.author_id = $3" : ""}
+    `, previousValues) : Promise.resolve({ rows: [null] });
     const personalPromise = personalAuthorId ? pool.query(`
       SELECT COUNT(*)::int AS asset_count, COUNT(*) FILTER (WHERE is_published)::int AS published_asset_count,
         COUNT(*) FILTER (WHERE NOT is_published)::int AS draft_count, COALESCE(SUM(view_count), 0)::int AS total_view_count
@@ -549,23 +875,91 @@ const getAdminDashboard = async (req, res) => {
       SELECT a.id, a.title, a.asset_type, a.is_published, COALESCE(a.view_count, 0)::int AS view_count, a.created_at, c.name AS category_name
       FROM knowledge_assets a LEFT JOIN categories c ON c.id = a.category_id
       WHERE a.author_id = $1 AND a.deleted_at IS NULL ORDER BY a.created_at DESC, a.id DESC LIMIT 5`, [personalAuthorId]) : Promise.resolve({ rows: [] });
-    const [organizationResult, trendResult, topAssetsResult, topSharedResult, searchInsightsResult, popularSearchesResult, personalResult, recentAssetsResult] = await Promise.all([
+    // Selalu sertakan ranking global untuk Admin. Frontend menyembunyikannya
+    // ketika Admin sedang berada dalam konteks akun Pegawai.
+    const includeStaffRankings = req.user.role === "admin";
+    const staffPeriodValues = period.hasRange ? [period.startDate, period.endExclusive] : [];
+    const staffAssetRangeFilter = period.hasRange ? " AND a.created_at >= $1::date AND a.created_at < $2::date" : "";
+    const emptyStaffRanking = () => Promise.resolve({ rows: [] });
+    const staffPublishedPromise = includeStaffRankings ? pool.query(`
+      SELECT u.id, u.full_name, u.email, u.department, COUNT(a.id)::int AS metric_value
+      FROM users u
+      INNER JOIN knowledge_assets a ON a.author_id = u.id
+      WHERE u.role = 'pegawai' AND u.deleted_at IS NULL
+        AND a.deleted_at IS NULL AND a.is_published = TRUE${staffAssetRangeFilter}
+      GROUP BY u.id, u.full_name, u.email, u.department
+      HAVING COUNT(a.id) > 0
+      ORDER BY metric_value DESC, u.full_name ASC
+      LIMIT 5`, staffPeriodValues) : emptyStaffRanking();
+    const staffCreatedPromise = includeStaffRankings ? pool.query(`
+      SELECT u.id, u.full_name, u.email, u.department, COUNT(a.id)::int AS metric_value
+      FROM users u
+      INNER JOIN knowledge_assets a ON a.author_id = u.id
+      WHERE u.role = 'pegawai' AND u.deleted_at IS NULL
+        AND a.deleted_at IS NULL${staffAssetRangeFilter}
+      GROUP BY u.id, u.full_name, u.email, u.department
+      HAVING COUNT(a.id) > 0
+      ORDER BY metric_value DESC, u.full_name ASC
+      LIMIT 5`, staffPeriodValues) : emptyStaffRanking();
+    const staffViewsPromise = includeStaffRankings ? pool.query(period.hasRange ? `
+      SELECT u.id, u.full_name, u.email, u.department, COUNT(v.id)::int AS metric_value
+      FROM users u
+      INNER JOIN knowledge_assets a ON a.author_id = u.id
+      INNER JOIN asset_views v ON v.asset_id = a.id
+      WHERE u.role = 'pegawai' AND u.deleted_at IS NULL
+        AND a.deleted_at IS NULL AND a.is_published = TRUE
+        AND v.created_at >= $1::date AND v.created_at < $2::date
+      GROUP BY u.id, u.full_name, u.email, u.department
+      HAVING COUNT(v.id) > 0
+      ORDER BY metric_value DESC, u.full_name ASC
+      LIMIT 5` : `
+      SELECT u.id, u.full_name, u.email, u.department, COALESCE(SUM(a.view_count), 0)::int AS metric_value
+      FROM users u
+      INNER JOIN knowledge_assets a ON a.author_id = u.id
+      WHERE u.role = 'pegawai' AND u.deleted_at IS NULL
+        AND a.deleted_at IS NULL AND a.is_published = TRUE
+      GROUP BY u.id, u.full_name, u.email, u.department
+      HAVING COALESCE(SUM(a.view_count), 0) > 0
+      ORDER BY metric_value DESC, u.full_name ASC
+      LIMIT 5`, staffPeriodValues) : emptyStaffRanking();
+    const [organizationResult, trendResult, topAssetsResult, topSharedResult, popularSearchesResult, personalResult, recentAssetsResult, staffPublishedResult, staffViewsResult, staffCreatedResult, previousOrganizationResult] = await Promise.all([
       pool.query(organizationQuery, scopedValues),
       pool.query(trendQuery, scope.authorId ? [trend.startDate, trend.endExclusive, scope.authorId] : [trend.startDate, trend.endExclusive]),
       pool.query(topAssetsQuery, scopedValues), pool.query(topSharedQuery, scopedValues),
-      pool.query(`SELECT COUNT(*)::int AS total_searches, COUNT(*) FILTER (WHERE result_count = 0)::int AS zero_result_searches FROM search_events e ${searchFilter}`, period.hasRange ? [period.startDate, period.endExclusive] : []),
-      pool.query(`SELECT e.query, COUNT(*)::int AS search_count, COUNT(*) FILTER (WHERE e.result_count = 0)::int AS zero_result_count FROM search_events e ${searchFilter} GROUP BY e.query ORDER BY COUNT(*) DESC, MAX(e.created_at) DESC LIMIT 5`, period.hasRange ? [period.startDate, period.endExclusive] : []),
-      personalPromise, recentPromise,
+      pool.query(`
+        SELECT e.query,
+               COUNT(*)::int AS search_count,
+               COUNT(*) FILTER (WHERE e.result_count = 0)::int AS zero_result_count,
+               SUM(COUNT(*)) OVER()::int AS total_searches,
+               SUM(COUNT(*) FILTER (WHERE e.result_count = 0)) OVER()::int AS zero_result_searches
+        FROM search_events e ${searchFilter}
+        GROUP BY e.query
+        ORDER BY COUNT(*) DESC, MAX(e.created_at) DESC
+        LIMIT 5`, period.hasRange ? [period.startDate, period.endExclusive] : []),
+      personalPromise, recentPromise, staffPublishedPromise, staffViewsPromise, staffCreatedPromise, previousOrganizationPromise,
     ]);
+    const searchTotals = popularSearchesResult.rows[0] || { total_searches: 0, zero_result_searches: 0 };
+    const popularSearches = popularSearchesResult.rows.map(({ total_searches: _total, zero_result_searches: _zero, ...row }) => row);
     res.json({
       organization: organizationResult.rows[0], publicationTrend: trendResult.rows, topAssets: topAssetsResult.rows,
-      discovery: { ...searchInsightsResult.rows[0], topShared: topSharedResult.rows, popularSearches: popularSearchesResult.rows },
+      discovery: {
+        total_searches: searchTotals.total_searches,
+        zero_result_searches: searchTotals.zero_result_searches,
+        topShared: topSharedResult.rows,
+        popularSearches,
+      },
       rankings: {
-        search: popularSearchesResult.rows.map((row) => ({ ...row, metric_value: row.search_count })),
+        search: popularSearches.map((row) => ({ ...row, metric_value: row.search_count })),
         view: topAssetsResult.rows.map((row) => ({ ...row, metric_value: row.view_count })),
         share: topSharedResult.rows.map((row) => ({ ...row, metric_value: row.share_count })),
       },
+      staffRankings: {
+        published: staffPublishedResult.rows,
+        views: staffViewsResult.rows,
+        created: staffCreatedResult.rows,
+      },
       period: { key: period.key, startDate: period.startDate, endDate: period.endDate, trendGranularity: trend.label, viewMetric: period.hasRange ? "period" : "all_time" },
+      comparison: { available: Boolean(previousPeriod), previous: previousOrganizationResult.rows[0] },
       selectedAuthorId: personalAuthorId,
       personal: { ...personalResult.rows[0], recentAssets: recentAssetsResult.rows },
     });
@@ -577,8 +971,13 @@ const getAdminDashboard = async (req, res) => {
 
 const getAdminDashboardRanking = async (req, res) => {
   const metric = typeof req.query.metric === "string" ? req.query.metric : "";
-  if (!new Set(["search", "view", "share"]).has(metric)) {
-    return res.status(400).json({ error: "Metric ranking harus search, view, atau share" });
+  const validMetrics = new Set(["search", "view", "share", "staff_published", "staff_views", "staff_created"]);
+  if (!validMetrics.has(metric)) {
+    return res.status(400).json({ error: "Metric ranking tidak valid" });
+  }
+  const isStaffMetric = metric.startsWith("staff_");
+  if (isStaffMetric && req.user.role !== "admin") {
+    return res.status(403).json({ error: "Ranking kontribusi Pegawai hanya tersedia untuk Admin" });
   }
 
   const scope = getRequestedAuthorId(req);
@@ -602,7 +1001,53 @@ const getAdminDashboardRanking = async (req, res) => {
     : "";
 
   let baseSql;
-  if (metric === "search") {
+  if (isStaffMetric) {
+    const filters = ["u.role = 'pegawai'", "u.deleted_at IS NULL", "a.deleted_at IS NULL"];
+    if (query) {
+      const searchParameter = addValue(`%${query}%`);
+      filters.push(`(u.full_name ILIKE ${searchParameter} OR u.email ILIKE ${searchParameter} OR COALESCE(u.department, '') ILIKE ${searchParameter})`);
+    }
+
+    if (metric === "staff_views") {
+      filters.push("a.is_published = TRUE");
+      if (period.hasRange) {
+        filters.push(`v.created_at >= ${addValue(period.startDate)}::date`);
+        filters.push(`v.created_at < ${addValue(period.endExclusive)}::date`);
+        baseSql = `
+          SELECT u.id, u.full_name, u.email, u.department,
+                 COUNT(v.id)::int AS metric_value, u.full_name AS sort_label
+          FROM users u
+          INNER JOIN knowledge_assets a ON a.author_id = u.id
+          INNER JOIN asset_views v ON v.asset_id = a.id
+          WHERE ${filters.join(" AND ")}
+          GROUP BY u.id, u.full_name, u.email, u.department
+          HAVING COUNT(v.id) > 0`;
+      } else {
+        baseSql = `
+          SELECT u.id, u.full_name, u.email, u.department,
+                 COALESCE(SUM(a.view_count), 0)::int AS metric_value, u.full_name AS sort_label
+          FROM users u
+          INNER JOIN knowledge_assets a ON a.author_id = u.id
+          WHERE ${filters.join(" AND ")}
+          GROUP BY u.id, u.full_name, u.email, u.department
+          HAVING COALESCE(SUM(a.view_count), 0) > 0`;
+      }
+    } else {
+      if (metric === "staff_published") filters.push("a.is_published = TRUE");
+      if (period.hasRange) {
+        filters.push(`a.created_at >= ${addValue(period.startDate)}::date`);
+        filters.push(`a.created_at < ${addValue(period.endExclusive)}::date`);
+      }
+      baseSql = `
+        SELECT u.id, u.full_name, u.email, u.department,
+               COUNT(a.id)::int AS metric_value, u.full_name AS sort_label
+        FROM users u
+        INNER JOIN knowledge_assets a ON a.author_id = u.id
+        WHERE ${filters.join(" AND ")}
+        GROUP BY u.id, u.full_name, u.email, u.department
+        HAVING COUNT(a.id) > 0`;
+    }
+  } else if (metric === "search") {
     const filters = ["1 = 1"];
     if (period.hasRange) {
       filters.push(`e.created_at >= ${addValue(period.startDate)}::date`);
@@ -777,7 +1222,7 @@ const getRelatedAssets = async (req, res) => {
 
     const categoryId = currentResult.rows[0].category_id;
     const primaryResult = categoryId ? await pool.query(
-      `${PUBLIC_ASSET_SELECT}
+      `${PUBLIC_ASSET_CARD_SELECT}
        WHERE a.id <> $1
          AND a.is_published = TRUE
          AND a.deleted_at IS NULL
@@ -793,7 +1238,7 @@ const getRelatedAssets = async (req, res) => {
       const fallbackValues = [id, ...selectedIds];
       const excludedIds = fallbackValues.map((_, index) => `$${index + 1}`).join(", ");
       const fallbackResult = await pool.query(
-        `${PUBLIC_ASSET_SELECT}
+        `${PUBLIC_ASSET_CARD_SELECT}
          WHERE a.id NOT IN (${excludedIds})
            AND a.is_published = TRUE
            AND a.deleted_at IS NULL
@@ -892,9 +1337,7 @@ const createDraft = async (req, res) => {
     await recordAudit({ ...auditActor(req), action: "asset.draft_created", targetType: "asset", targetId: rows[0].id, metadata: { assetType } });
     res.status(201).json({ ...rows[0], quality: buildAssetQuality(rows[0]) });
   } catch (error) {
-    console.error("Error creating draft:", error);
-    if (error.code === "23505") return res.status(409).json({ error: "Judul draf sudah digunakan. Ubah judul lalu coba kembali." });
-    res.status(500).json({ error: "Gagal menyimpan draf otomatis" });
+    return sendDraftFailure(res, error, "Gagal menyimpan draf otomatis");
   }
 };
 
@@ -941,12 +1384,13 @@ const updateDraft = async (req, res) => {
         current.id,
       ],
     );
+    if (!rows[0]) {
+      return res.status(409).json({ error: "Draf sudah disimpan atau diterbitkan oleh proses lain" });
+    }
     await recordAudit({ ...auditActor(req), action: "asset.draft_updated", targetType: "asset", targetId: current.id, metadata: { assetType } });
     res.json({ ...rows[0], quality: buildAssetQuality(rows[0]) });
   } catch (error) {
-    console.error("Error updating draft:", error);
-    if (error.code === "23505") return res.status(409).json({ error: "Judul draf sudah digunakan. Ubah judul lalu coba kembali." });
-    res.status(500).json({ error: "Gagal menyimpan draf otomatis" });
+    return sendDraftFailure(res, error, "Gagal memperbarui draf otomatis");
   }
 };
 
@@ -1001,7 +1445,7 @@ const createAsset = async (req, res) => {
   } catch (error) {
     console.error("Error detail:", error.message || error);
     if (error.code === "23505") {
-      return res.status(409).json({ error: "Judul atau alamat aset sudah digunakan. Gunakan judul lain." });
+      return res.status(409).json({ error: "Alamat aset mengalami konflik. Coba simpan kembali agar sistem membuat alamat baru." });
     }
     res
       .status(500)
@@ -1096,7 +1540,7 @@ const updateAsset = async (req, res) => {
   } catch (error) {
     console.error("Error updating asset:", error);
     if (error.code === "23505") {
-      return res.status(409).json({ error: "Judul atau alamat aset sudah digunakan. Gunakan judul lain." });
+      return res.status(409).json({ error: "Alamat aset mengalami konflik. Coba simpan kembali agar sistem membuat alamat baru." });
     }
     res.status(500).json({ error: "Gagal memperbarui aset" });
   }
@@ -1122,153 +1566,6 @@ const deleteAsset = async (req, res) => {
   }
 };
 
-// ============================================================================
-// BAGIAN 2: CATEGORIES (KATEGORI)
-// ============================================================================
-
-const getAllCategories = async (req, res) => {
-  try {
-    // Tambahkan filter WHERE deleted_at IS NULL
-    const { rows } = await pool.query(
-      "SELECT * FROM categories WHERE deleted_at IS NULL ORDER BY id ASC",
-    );
-    res.json(rows);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal mengambil kategori", detail: error.message });
-  }
-};
-const createCategory = async (req, res) => {
-  const { name, slug, description } = req.body;
-  try {
-    const query =
-      "INSERT INTO categories (name, slug, description) VALUES ($1, $2, $3) RETURNING *";
-    const { rows } = await pool.query(query, [name, slug, description]);
-    res.status(201).json(rows[0]);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal membuat kategori", detail: error.message });
-  }
-};
-
-const updateCategory = async (req, res) => {
-  const { id } = req.params;
-  const { name, slug, description } = req.body;
-  try {
-    const query =
-      "UPDATE categories SET name=$1, slug=$2, description=$3 WHERE id=$4 RETURNING *";
-    const { rows } = await pool.query(query, [name, slug, description, id]);
-    if (rows.length === 0)
-      return res.status(404).json({ error: "Kategori tidak ditemukan" });
-    res.json(rows[0]);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal mengubah kategori", detail: error.message });
-  }
-};
-
-const deleteCategory = async (req, res) => {
-  const { id } = req.params;
-  try {
-    // Ubah DELETE FROM menjadi UPDATE
-    const query =
-      "UPDATE categories SET deleted_at = CURRENT_TIMESTAMP WHERE id=$1 RETURNING id";
-    const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0)
-      return res.status(404).json({ error: "Kategori tidak ditemukan" });
-    res.json({ message: "Kategori berhasil diarsipkan (soft delete)" });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal menghapus kategori", detail: error.message });
-  }
-};
-
-// ============================================================================
-// BAGIAN 3: WORK UNITS (UNIT KERJA)
-// ============================================================================
-
-const getAllWorkUnits = async (req, res) => {
-  try {
-    const shouldIncludeAssetCount = req.query.withAssetCount === "true";
-    const query = shouldIncludeAssetCount
-      ? `
-        SELECT
-          w.*,
-          COUNT(a.id)::INTEGER AS asset_count
-        FROM work_units w
-        LEFT JOIN knowledge_assets a
-          ON a.work_unit_id = w.id
-          AND a.is_published = TRUE
-          AND a.deleted_at IS NULL
-        WHERE w.deleted_at IS NULL
-        GROUP BY w.id
-        ORDER BY w.id ASC
-      `
-      : "SELECT * FROM work_units WHERE deleted_at IS NULL ORDER BY id ASC";
-    const { rows } = await pool.query(query);
-    res.json(rows);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal mengambil unit kerja", detail: error.message });
-  }
-};
-
-const createWorkUnit = async (req, res) => {
-  const { name } = req.body;
-  try {
-    const query = "INSERT INTO work_units (name) VALUES ($1) RETURNING *";
-    const { rows } = await pool.query(query, [name]);
-    res.status(201).json(rows[0]);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal membuat unit kerja", detail: error.message });
-  }
-};
-
-const updateWorkUnit = async (req, res) => {
-  const { id } = req.params;
-  const { name } = req.body;
-  try {
-    const query = "UPDATE work_units SET name=$1 WHERE id=$2 RETURNING *";
-    const { rows } = await pool.query(query, [name, id]);
-    if (rows.length === 0)
-      return res.status(404).json({ error: "Unit kerja tidak ditemukan" });
-    res.json(rows[0]);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal mengubah unit kerja", detail: error.message });
-  }
-};
-
-const deleteWorkUnit = async (req, res) => {
-  const { id } = req.params;
-  try {
-    // Ubah DELETE FROM menjadi UPDATE
-    const query =
-      "UPDATE work_units SET deleted_at = CURRENT_TIMESTAMP WHERE id=$1 RETURNING id";
-    const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0)
-      return res.status(404).json({ error: "Unit kerja tidak ditemukan" });
-    res.json({ message: "Unit kerja berhasil diarsipkan (soft delete)" });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Gagal menghapus unit kerja", detail: error.message });
-  }
-};
-
-// ============================================================================
-// EXPORT SEMUA FUNGSI
-// ============================================================================
 module.exports = {
   // Assets
   getHomepageAssets,
@@ -1276,6 +1573,8 @@ module.exports = {
   getAdminAssets,
   getDeletedAssets,
   restoreAsset,
+  restoreAssetsBulk,
+  permanentlyDeleteAssets,
   getAdminDashboard,
   getAdminDashboardRanking,
   getAdminAssetDetail,
@@ -1289,14 +1588,4 @@ module.exports = {
   createAsset,
   updateAsset,
   deleteAsset,
-  // Categories
-  getAllCategories,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  // Work Units
-  getAllWorkUnits,
-  createWorkUnit,
-  updateWorkUnit,
-  deleteWorkUnit,
 };

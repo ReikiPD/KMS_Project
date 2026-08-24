@@ -5,10 +5,11 @@ import {
   Building2,
   FileText,
   Filter,
+  History,
   PlayCircle,
   SearchX,
-  History,
   Sparkles,
+  X,
 } from "lucide-react";
 import {
   Alert,
@@ -17,14 +18,19 @@ import {
   Card,
   Divider,
   Drawer,
-  InputSearch,
   Pagination,
   SelectDropdown,
   Skeleton,
+  Tooltip,
 } from "@idds/react";
 import AssetCard from "../components/AssetCard";
+import AssetQuickPreview from "../components/AssetQuickPreview";
+import EmptyState from "../components/EmptyState";
+import MultipleSearchSelect from "../components/MultipleSearchSelect";
 import transportHero from "../assets/knowledge/transport-hero.png";
-import { API_BASE_URL, inputValue } from "../lib/api";
+import { apiFetch } from "../lib/api";
+import { normalizeSearchSelections, queryToSearchSelections, searchSelectionsToQuery } from "../lib/search";
+import { workUnitFullName, workUnitShortName } from "../lib/workUnits";
 
 const PAGE_SIZE_OPTIONS = [6, 12, 24];
 const sortOptions = [
@@ -53,18 +59,22 @@ function UnitWorkList({ workUnits, selected, totalItems, onSelect, onClose }) {
       </Button>
       {workUnits.map((unit) => {
         const isActive = selected === String(unit.id);
+        const shortName = workUnitShortName(unit.name);
+        const fullName = workUnitFullName(unit.name);
         return (
-          <Button
-            key={unit.id}
-            hierarchy={isActive ? "primary" : "tertiary"}
-            size="md"
-            className={`kms-unit-work-item ${isActive ? "kms-unit-work-item--active" : ""}`}
-          onClick={() => chooseUnit(String(unit.id))}
-        >
-          <span className="kms-unit-work-mark" aria-hidden="true">{unit.name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "UK"}</span>
-          <span className="kms-unit-work-name">{unit.name}</span>
-          <Badge className="kms-unit-work-count" type="soft" variant={isActive ? "neutral" : "brand"} size="sm">{unit.asset_count ?? 0}</Badge>
-          </Button>
+          <Tooltip key={unit.id} variant="basic" title={fullName} placement="right" showArrow={true}>
+            <Button
+              hierarchy={isActive ? "primary" : "tertiary"}
+              size="md"
+              className={`kms-unit-work-item ${isActive ? "kms-unit-work-item--active" : ""}`}
+              aria-label={`${fullName}, ${unit.asset_count ?? 0} aset`}
+              onClick={() => chooseUnit(String(unit.id))}
+            >
+              <span className="kms-unit-work-mark" aria-hidden="true">{unit.name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "UK"}</span>
+              <span className="kms-unit-work-name">{shortName}</span>
+              <Badge className="kms-unit-work-count" type="soft" variant={isActive ? "neutral" : "brand"} size="sm">{unit.asset_count ?? 0}</Badge>
+            </Button>
+          </Tooltip>
         );
       })}
     </div>
@@ -79,7 +89,8 @@ export default function Page() {
   const [categories, setCategories] = useState([]);
   const [workUnits, setWorkUnits] = useState([]);
   const [pagination, setPagination] = useState(null);
-  const [searchInput, setSearchInput] = useState(() => urlQuery);
+  const [searchSelections, setSearchSelections] = useState(() => queryToSearchSelections(urlQuery));
+  const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState(() => (urlQuery.length >= 3 ? urlQuery : ""));
   const [categoryId, setCategoryId] = useState("");
   const [workUnitId, setWorkUnitId] = useState("");
@@ -92,11 +103,10 @@ export default function Page() {
   const [isUnitDrawerOpen, setIsUnitDrawerOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState(null);
   const trackedQuery = useRef("");
-  const searchInputRef = useRef(searchInput);
-  const urlQueryRef = useRef(urlQuery);
-  const setUrlSearchParamsRef = useRef(setUrlSearchParams);
+  const searchContainerRef = useRef(null);
+  const searchInput = searchSelectionsToQuery(searchSelections);
 
   const totalUnitAssets = useMemo(
     () => workUnits.reduce((total, unit) => total + Number(unit.asset_count || 0), 0),
@@ -111,9 +121,9 @@ export default function Page() {
     const loadFiltersAndFeatured = async () => {
       try {
         const [categoriesResponse, unitsResponse, featuredResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/assets/categories`, { signal: controller.signal }),
-          fetch(`${API_BASE_URL}/api/assets/work-units?withAssetCount=true`, { signal: controller.signal }),
-          fetch(`${API_BASE_URL}/api/assets/featured`, { signal: controller.signal }),
+          apiFetch("/api/assets/categories", { signal: controller.signal }),
+          apiFetch("/api/assets/work-units?withAssetCount=true", { signal: controller.signal }),
+          apiFetch("/api/assets/featured", { signal: controller.signal }),
         ]);
         if (controller.signal.aborted) return;
         if (categoriesResponse.ok) setCategories(await categoriesResponse.json());
@@ -134,35 +144,34 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    searchInputRef.current = searchInput;
-  }, [searchInput]);
+    const focusGlobalSearch = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("id-ID") === "k") {
+        event.preventDefault();
+        searchContainerRef.current?.querySelector("input")?.focus();
+        searchContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    };
+    window.addEventListener("keydown", focusGlobalSearch);
+    return () => window.removeEventListener("keydown", focusGlobalSearch);
+  }, []);
 
   useEffect(() => {
-    urlQueryRef.current = urlQuery;
-  }, [urlQuery]);
-
-  useEffect(() => {
-    setUrlSearchParamsRef.current = setUrlSearchParams;
-  }, [setUrlSearchParams]);
-
-  useEffect(() => {
-    const query = searchInput.trim();
-    if (query.length < 3) { setSuggestions([]); return undefined; }
+    const query = searchDraft.trim();
+    if (query.length < 1) { setSuggestions([]); return undefined; }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/assets/search/suggestions?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        const response = await apiFetch(`/api/assets/search/suggestions?q=${encodeURIComponent(query)}`, { signal: controller.signal });
         const data = await response.json();
         if (response.ok && !controller.signal.aborted) setSuggestions(Array.isArray(data) ? data : (data.data || []));
       } catch { if (!controller.signal.aborted) setSuggestions([]); }
     }, 220);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [searchInput]);
+  }, [searchDraft]);
 
   useEffect(() => {
     const nextQuery = urlQuery.length >= 3 ? urlQuery : "";
-    searchInputRef.current = urlQuery;
-    setSearchInput((current) => current === urlQuery ? current : urlQuery);
+    setSearchSelections((current) => searchSelectionsToQuery(current) === urlQuery ? current : queryToSearchSelections(urlQuery));
     setSearchQuery((current) => {
       if (current === nextQuery) return current;
       setCurrentPage(1);
@@ -184,7 +193,7 @@ export default function Page() {
         if (searchQuery) params.set("q", searchQuery);
         if (categoryId) params.set("categoryId", categoryId);
         if (workUnitId) params.set("workUnitId", workUnitId);
-        const response = await fetch(`${API_BASE_URL}/api/assets/homepage?${params}`, { signal: controller.signal });
+        const response = await apiFetch(`/api/assets/homepage?${params}`, { signal: controller.signal });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Gagal memuat katalog pengetahuan");
         if (controller.signal.aborted) return;
@@ -192,7 +201,7 @@ export default function Page() {
         setPagination(result.pagination);
         if (searchQuery && trackedQuery.current !== searchQuery) {
           trackedQuery.current = searchQuery;
-          fetch(`${API_BASE_URL}/api/assets/search-events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, resultCount: result.pagination?.totalItems || 0 }) }).catch(() => undefined);
+          apiFetch("/api/assets/search-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: searchQuery, resultCount: result.pagination?.totalItems || 0 }) }).catch(() => undefined);
         }
       } catch (loadError) {
         if (!controller.signal.aborted) setError(loadError.message);
@@ -204,29 +213,35 @@ export default function Page() {
     return () => controller.abort();
   }, [categoryId, currentPage, pageSize, searchQuery, sort, workUnitId]);
 
-  const updateSearch = useCallback((value) => {
-    const nextValue = inputValue(value);
-    if (searchInputRef.current !== nextValue) {
-      searchInputRef.current = nextValue;
-      setSearchInput(nextValue);
+  const updateSearchSelections = useCallback((values) => {
+    const nextValues = normalizeSearchSelections(values);
+    setSearchSelections(nextValues);
+    if (nextValues.length) return;
+    setSearchQuery("");
+    setSort("terbaru");
+    setCurrentPage(1);
+    setUrlSearchParams({}, { replace: true });
+  }, [setUrlSearchParams]);
+
+  const openAssetPreview = useCallback(async (asset) => {
+    setPreviewAsset(asset);
+    try {
+      const response = await apiFetch(`/api/assets/${asset.id}`);
+      if (!response.ok) return;
+      const detail = await response.json();
+      setPreviewAsset((current) => current?.id === asset.id ? detail : current);
+    } catch {
+      // Ringkasan kartu tetap dapat digunakan ketika detail tidak tersedia.
     }
-    if (nextValue.trim()) return;
-
-    setSearchQuery((current) => current === "" ? current : "");
-    setCurrentPage((current) => current === 1 ? current : 1);
-
-    if (!urlQueryRef.current) return;
-    urlQueryRef.current = "";
-    setUrlSearchParamsRef.current({}, { replace: true });
   }, []);
 
-  const submitSearch = useCallback((value = searchInput) => {
-    const query = inputValue(value).trim();
+  const submitSearch = useCallback((value = searchSelections) => {
+    const nextSelections = Array.isArray(value) ? normalizeSearchSelections(value) : queryToSearchSelections(value);
+    const query = searchSelectionsToQuery(nextSelections);
     if (query.length > 0 && query.length < 3) return;
-    setSearchInput(query);
+    setSearchSelections(nextSelections);
     setSearchQuery(query);
     setSort(query ? "relevansi" : "terbaru");
-    setIsSearchFocused(false);
     if (query) {
       const nextRecent = [query, ...recentSearches.filter((item) => item.toLowerCase() !== query.toLowerCase())].slice(0, 6);
       setRecentSearches(nextRecent);
@@ -235,7 +250,7 @@ export default function Page() {
     setCurrentPage(1);
     setUrlSearchParams(query ? { q: query } : {}, { replace: true });
     window.requestAnimationFrame(() => document.getElementById("catalogue-results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }, [recentSearches, searchInput, setUrlSearchParams]);
+  }, [recentSearches, searchSelections, setUrlSearchParams]);
 
   const selectCategory = (value) => {
     if (value === categoryId) return;
@@ -263,7 +278,8 @@ export default function Page() {
   };
 
   const resetFilters = () => {
-    setSearchInput("");
+    setSearchSelections([]);
+    setSearchDraft("");
     setSearchQuery("");
     setCategoryId("");
     setWorkUnitId("");
@@ -283,9 +299,46 @@ export default function Page() {
   };
 
   const categoryOptions = [{ label: "Semua kategori", value: "" }, ...categories.map((category) => ({ label: category.name, value: String(category.id) }))];
+  const normalizedDraft = searchDraft.trim().toLocaleLowerCase("id-ID");
+  const matchesDraft = (value) => !normalizedDraft || String(value || "").toLocaleLowerCase("id-ID").includes(normalizedDraft);
+  const searchOptions = [
+    ...workUnits.filter((unit) => matchesDraft(`${unit.name} ${workUnitFullName(unit.name)}`)).slice(0, 6).map((unit) => ({
+      group: "Unit Kerja",
+      label: workUnitFullName(unit.name),
+      value: workUnitFullName(unit.name),
+      description: `${unit.asset_count || 0} pengetahuan tersedia`,
+      icon: <Building2 size={15} />,
+    })),
+    ...categories.filter((category) => matchesDraft(category.name)).slice(0, 6).map((category) => ({
+      group: "Kategori",
+      label: category.name,
+      value: category.name,
+      description: "Kategori topik pengetahuan",
+      icon: <Filter size={15} />,
+    })),
+    ...[
+      { group: "Tipe Aset", label: "Dokumen PDF", value: "PDF", description: "Dokumen dan panduan", icon: <FileText size={15} /> },
+      { group: "Tipe Aset", label: "Video pembelajaran", value: "Video", description: "Media video", icon: <PlayCircle size={15} /> },
+    ].filter((option) => matchesDraft(`${option.label} ${option.value}`)),
+    ...suggestions.filter((suggestion) => matchesDraft(suggestion.title)).map((suggestion) => ({
+      group: "Judul Pengetahuan",
+      label: suggestion.title,
+      value: suggestion.title,
+      description: suggestion.asset_type === "video" ? "Video pembelajaran" : "Dokumen PDF",
+      icon: suggestion.asset_type === "video" ? <PlayCircle size={15} /> : <FileText size={15} />,
+    })),
+    ...recentSearches.filter(matchesDraft).slice(0, 6).map((query) => ({
+      group: "Pencarian Terakhir",
+      label: query,
+      value: query,
+      description: "Pernah Anda cari sebelumnya",
+      icon: <History size={15} />,
+    })),
+  ];
   const availableSortOptions = searchQuery ? [{ label: "Relevansi", value: "relevansi" }, ...sortOptions] : sortOptions;
   const resultStart = pagination?.totalItems ? (currentPage - 1) * pageSize + 1 : 0;
   const resultEnd = pagination?.totalItems ? Math.min(currentPage * pageSize, pagination.totalItems) : 0;
+  const activeFilterCount = [searchQuery, categoryId, workUnitId, sort !== "terbaru" ? sort : ""].filter(Boolean).length;
 
   return (
     <div className="kms-public-page pb-14 md:pb-20">
@@ -294,12 +347,25 @@ export default function Page() {
           <div>
             <Badge className="kms-hero-badge" type="soft" variant="brand" size="md" prefixIcon={<BookOpenCheck size={16} />}>Pusat Pengetahuan Kemenhub</Badge>
             <div className="mt-5 max-w-3xl">
-              <h1 className="kms-display-title text-white">Temukan pengetahuan untuk menggerakkan transportasi Indonesia.</h1>
-              <p className="mt-4 text-base leading-7 text-white/80 md:text-lg">Jelajahi praktik baik, panduan, dokumen, dan video pembelajaran dari unit kerja Kementerian Perhubungan.</p>
+              <h1 className="kms-display-title kms-on-brand">Temukan pengetahuan untuk menggerakkan transportasi Indonesia.</h1>
+              <p className="kms-on-brand-muted mt-4 text-base leading-7 md:text-lg">Jelajahi praktik baik, panduan, dokumen, dan video pembelajaran dari unit kerja Kementerian Perhubungan.</p>
             </div>
-            <form className="kms-hero-search relative mt-7 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(event) => { event.preventDefault(); submitSearch(); }}>
-              <div className="min-w-0 flex-1"><InputSearch label="Cari pengetahuan" value={searchInput} onFocus={() => setIsSearchFocused(true)} onChange={updateSearch} placeholder="Ketik judul, topik, atau kata kunci (minimal 3 karakter)" />
-                {isSearchFocused && (searchInput.trim().length >= 3 || recentSearches.length > 0) && <div className="kms-search-suggestions" role="listbox" aria-label="Saran pencarian">{searchInput.trim().length >= 3 ? <>{suggestions.length ? suggestions.map((suggestion) => <button key={suggestion.id} type="button" role="option" className="kms-search-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => submitSearch(suggestion.title)}><SearchX size={15} /><span className="min-w-0"><strong className="block truncate">{suggestion.title}</strong><small>{suggestion.asset_type === "video" ? "Video" : "Dokumen"}</small></span></button>) : <p className="px-3 py-3 text-xs text-content-secondary">Tekan Enter untuk mencari seluruh isi pengetahuan.</p>}</> : <>{recentSearches.length > 0 && <><p className="px-3 pb-1 pt-3 text-xs font-bold text-content-secondary">Pencarian terakhir</p>{recentSearches.map((query) => <button key={query} type="button" className="kms-search-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => submitSearch(query)}><History size={15} /><span className="truncate">{query}</span></button>)}</>}</>}</div>}
+            <form
+              className="kms-hero-search relative mt-7 flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-end"
+              onSubmit={(event) => { event.preventDefault(); submitSearch(); }}
+            >
+              <div className="min-w-0 flex-1">
+                <MultipleSearchSelect
+                  containerRef={searchContainerRef}
+                  label="Cari pengetahuan"
+                  selected={searchSelections}
+                  onSelect={updateSearchSelections}
+                  onSearch={setSearchDraft}
+                  options={searchOptions}
+                  placeholder="Ketik lalu pilih judul, topik, unit, atau kontributor"
+                  helperText=""
+                />
+                <span className="mt-1.5 block text-[0.7rem] text-content-secondary">Tekan Ctrl + K untuk membuka pencarian dari mana saja.</span>
               </div>
               <Button type="submit" hierarchy="primary" disabled={Boolean(searchInput.trim()) && searchInput.trim().length < 3}>Cari</Button>
               {searchInput && searchInput.trim().length < 3 && <p className="px-1 pt-2 text-xs text-content-secondary">Masukkan minimal 3 karakter untuk mulai mencari.</p>}
@@ -310,7 +376,7 @@ export default function Page() {
               <div className="kms-hero-feature"><Building2 size={20} /><span>Lintas unit kerja</span></div>
             </div>
           </div>
-          <div className="kms-hero-visual"><img src={transportHero} alt="Ilustrasi keterhubungan transportasi Indonesia melalui pengetahuan" /></div>
+          <div className="kms-hero-visual"><img src={transportHero} alt="Ilustrasi keterhubungan transportasi Indonesia melalui pengetahuan" decoding="async" fetchPriority="high" /></div>
         </div>
       </section>
 
@@ -325,9 +391,9 @@ export default function Page() {
           {featuredLoading ? (
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} height="260px" rounded="lg" />)}</div>
           ) : featuredAssets.length ? (
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">{featuredAssets.map((asset) => <AssetCard key={asset.id} asset={asset} />)}</div>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">{featuredAssets.map((asset) => <AssetCard key={asset.id} asset={asset} onPreview={openAssetPreview} />)}</div>
           ) : (
-            <Card className="border-dashed" title="Belum ada pengetahuan sorotan" description="Aset pilihan akan muncul di bagian ini." />
+            <Card className="border-dashed"><EmptyState title="Belum ada pengetahuan sorotan" description="Aset pilihan akan muncul di bagian ini." /></Card>
           )}
         </section>
 
@@ -363,21 +429,16 @@ export default function Page() {
                 <p className="text-sm text-content-secondary" aria-live="polite">
                   {loading ? "Memuat pengetahuan…" : `Menampilkan ${resultStart}–${resultEnd} dari ${pagination?.totalItems || 0} pengetahuan`}
                 </p>
-                <div className="flex flex-wrap gap-2">{searchQuery && <Badge type="soft" variant="brand" size="sm">Hasil: “{searchQuery}”</Badge>}{workUnitId && <Badge type="soft" variant="brand" size="sm">{activeUnitName}</Badge>}</div>
+                <div className="flex flex-wrap items-center gap-2">{activeFilterCount > 0 && <Badge type="soft" variant="info" size="sm">{activeFilterCount} filter aktif</Badge>}{searchQuery && <Badge type="soft" variant="brand" size="sm">Hasil: “{searchQuery}”</Badge>}{workUnitId && <Tooltip variant="basic" title={workUnitFullName(activeUnitName)} placement="top" showArrow={true}><Badge type="soft" variant="brand" size="sm">{workUnitShortName(activeUnitName)}</Badge></Tooltip>}{activeFilterCount > 0 && <Button hierarchy="tertiary" size="sm" prefixIcon={<X size={14} />} onClick={resetFilters}>Hapus semua filter</Button>}</div>
               </div>
 
               {error && <div className="mt-6"><Alert variant="danger" message={error} /></div>}
               {loading ? (
                 <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: pageSize }, (_, index) => <Skeleton key={index} height="300px" rounded="lg" />)}</div>
               ) : !error && assets.length === 0 ? (
-                <div className="mt-6 rounded-xl border border-dashed border-stroke-primary bg-page-primary px-6 py-16 text-center">
-                  <SearchX className="mx-auto text-content-secondary" size={36} />
-                  <h3 className="mt-4 text-lg font-semibold text-content-primary">Pengetahuan tidak ditemukan</h3>
-                  <p className="mx-auto mt-2 max-w-md text-sm text-content-secondary">Coba gunakan kata kunci lain atau hapus filter yang sedang dipilih.</p>
-                  <Button className="mt-5" hierarchy="secondary" size="md" onClick={resetFilters}>Reset filter</Button>
-                </div>
+                <EmptyState className="mt-6" icon={SearchX} title="Pengetahuan tidak ditemukan" description="Coba gunakan kata kunci lain atau hapus filter yang sedang dipilih." actionLabel="Reset filter" onAction={resetFilters} />
               ) : (
-                <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{assets.map((asset) => <AssetCard key={asset.id} asset={asset} />)}</div>
+                <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">{assets.map((asset) => <AssetCard key={asset.id} asset={asset} searchQuery={searchQuery} onPreview={openAssetPreview} />)}</div>
               )}
 
               {!loading && !error && (pagination?.totalItems || 0) > 0 && (
@@ -404,6 +465,7 @@ export default function Page() {
           <UnitWorkList workUnits={workUnits} selected={workUnitId} totalItems={totalUnitAssets} onSelect={selectWorkUnit} onClose={() => setIsUnitDrawerOpen(false)} />
         </div>
       </Drawer>
+      <AssetQuickPreview asset={previewAsset} open={Boolean(previewAsset)} onClose={() => setPreviewAsset(null)} />
     </div>
   );
 }

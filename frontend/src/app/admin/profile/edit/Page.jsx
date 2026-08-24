@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Alert, Avatar, Button, CardPlain, FileUpload, Modal, PasswordInput, Skeleton, TextField, useToast } from "@idds/react";
 import { Camera, KeyRound, Save, UserRound } from "lucide-react";
 import AdminPageHeader from "../../../../components/AdminPageHeader";
-import { API_BASE_URL, authHeaders, avatarUrl, currentUser, inputValue } from "../../../../lib/api";
+import { apiFetch, avatarUrl, currentUser, inputValue } from "../../../../lib/api";
 
 const initials = (name) => (name || "KM").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
@@ -26,7 +26,7 @@ export default function EditProfilePage() {
     const controller = new AbortController();
     const loadProfile = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/users/profile`, { headers: authHeaders(), signal: controller.signal });
+        const response = await apiFetch("/api/users/profile", { auth: true, signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Gagal memuat profil");
         if (controller.signal.aborted) return;
@@ -68,12 +68,12 @@ export default function EditProfilePage() {
       if (avatarFile) {
         const avatarPayload = new FormData();
         avatarPayload.append("avatar", avatarFile, avatarFile.name);
-        const avatarResponse = await fetch(`${API_BASE_URL}/api/users/profile/avatar`, { method: "PATCH", headers: authHeaders(), body: avatarPayload });
+        const avatarResponse = await apiFetch("/api/users/profile/avatar", { method: "PATCH", auth: true, body: avatarPayload });
         uploadedAvatar = await avatarResponse.json();
         if (!avatarResponse.ok) throw new Error(uploadedAvatar.error || "Gagal mengunggah avatar");
         if (!uploadedAvatar.avatar_url) throw new Error("Avatar belum tersimpan. Pastikan backend sudah dijalankan ulang.");
       }
-      const profileResponse = await fetch(`${API_BASE_URL}/api/users/profile`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      const profileResponse = await apiFetch("/api/users/profile", { method: "PATCH", auth: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       let updatedProfile = await profileResponse.json();
       if (!profileResponse.ok) throw new Error(updatedProfile.error || "Gagal menyimpan profil");
       if (uploadedAvatar?.avatar_url && !updatedProfile.avatar_url) updatedProfile = { ...updatedProfile, avatar_url: uploadedAvatar.avatar_url };
@@ -102,7 +102,7 @@ export default function EditProfilePage() {
     if (passwordForm.newPassword !== passwordForm.confirmPassword) return setPasswordError("Konfirmasi kata sandi baru belum sama.");
     setSavingPassword(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/users/profile/password`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(passwordForm) });
+      const response = await apiFetch("/api/users/profile/password", { method: "PATCH", auth: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify(passwordForm) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Gagal memperbarui kata sandi");
       toast({ title: "Kata sandi berhasil diperbarui", state: "positive", position: "top-right" });

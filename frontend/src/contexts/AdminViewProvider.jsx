@@ -14,13 +14,9 @@ export default function AdminViewProvider({ children }) {
   const [searchParams] = useSearchParams();
   const user = currentUser();
   const adminEmployeeId = user?.role === "admin" ? getEmployeeId(searchParams.get("asEmployee")) : "";
-  // A regular `authorId` from an older Admin link is treated as a read-only
-  // observation context. New links use the more explicit `viewUser` key.
   const adminViewedUserId = user?.role === "admin"
     ? getEmployeeId(searchParams.get("viewUser") || (adminEmployeeId ? "" : searchParams.get("authorId")))
     : "";
-  // `authorId` is kept as a backwards-compatible entry point for older
-  // Pimpinan links that were created before `viewEmployee` was introduced.
   const leaderEmployeeId = user?.role === "pimpinan"
     ? getEmployeeId(searchParams.get("viewEmployee") || searchParams.get("authorId"))
     : "";

@@ -15,14 +15,14 @@ export default function PublicFooter() {
         <div>
           <Link to="/" className="kms-footer-brand flex w-fit items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Kembali ke beranda KMS Kemenhub">
             <span className="kms-footer-mark"><BookOpen size={22} aria-hidden="true" /></span>
-            <div><p className="font-bold text-white">KMS Kemenhub</p><p className="text-xs text-white/70">Pusat Pengetahuan Perhubungan</p></div>
+            <div><p className="kms-on-brand font-bold">KMS Kemenhub</p><p className="kms-on-brand-muted text-xs">Pusat Pengetahuan Perhubungan</p></div>
           </Link>
-          <p className="mt-4 max-w-md text-sm leading-6 text-white/75">Ruang berbagi pengetahuan untuk mendukung transportasi Indonesia yang terhubung, aman, dan berkelanjutan.</p>
+          <p className="kms-on-brand-muted mt-4 max-w-md text-sm leading-6">Ruang berbagi pengetahuan untuk mendukung transportasi Indonesia yang terhubung, aman, dan berkelanjutan.</p>
         </div>
 
         <div>
           <h2 className="kms-footer-heading">Kementerian Perhubungan</h2>
-          <ul className="mt-4 space-y-3 text-sm text-white/75">
+          <ul className="kms-on-brand-muted mt-4 space-y-3 text-sm">
             <li className="flex gap-2"><MapPin className="mt-0.5 shrink-0 text-kms-gold" size={16} /><span>Jl. Medan Merdeka Barat No. 8, Jakarta 10110</span></li>
             <li className="flex items-center gap-2"><Phone className="shrink-0 text-kms-gold" size={16} /><a className="kms-footer-link" href="tel:151">Contact Center 151</a></li>
             <li className="flex items-center gap-2"><Mail className="shrink-0 text-kms-gold" size={16} /><a className="kms-footer-link" href="mailto:info151@dephub.go.id">info151@dephub.go.id</a></li>
@@ -36,8 +36,8 @@ export default function PublicFooter() {
           </ul>
         </div>
       </div>
-      <div className="border-t border-white/15">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-4 text-xs text-white/60 sm:flex-row sm:items-center sm:justify-between md:px-8">
+      <div className="kms-footer-divider border-t">
+        <div className="kms-on-brand-subtle mx-auto flex max-w-7xl flex-col gap-2 px-4 py-4 text-xs sm:flex-row sm:items-center sm:justify-between md:px-8">
           <p>© {new Date().getFullYear()} Kementerian Perhubungan Republik Indonesia.</p>
           <p>KMS Kemenhub · Berbagi pengetahuan untuk konektivitas Indonesia.</p>
         </div>
