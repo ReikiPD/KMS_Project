@@ -10,8 +10,11 @@ const responseCache = ({ ttlMs = 15_000, privateCache = false, maxEntries = 250 
   if (req.method !== "GET") return next();
 
   const now = Date.now();
+  const contextIdentity = req.accessContext
+    ? `context:${req.accessContext.mode || "view"}:${req.accessContext.id || "unknown"}:${req.accessContext.supervisor_public_id || "direct"}`
+    : "root";
   const identity = privateCache
-    ? `${req.user?.role || "anonymous"}:${req.user?.id || req.user?.email || "unknown"}`
+    ? `${req.user?.role || "anonymous"}:${req.user?.id || req.user?.email || "unknown"}:${contextIdentity}`
     : "public";
   const key = `${identity}:${req.originalUrl}`;
   const cached = cache.get(key);

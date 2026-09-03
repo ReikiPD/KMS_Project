@@ -1,0 +1,31 @@
+[Unit]
+Description=KMS Kemenhub expired asset retention cleanup
+After=postgresql.service
+RequiresMountsFor=/var/lib/kms/uploads
+
+[Service]
+Type=oneshot
+User=kms
+Group=kms-app
+SupplementaryGroups=kms-files
+WorkingDirectory=/opt/kms/current/backend
+EnvironmentFile=/etc/kms/backend.env
+ExecStart=/usr/bin/node scripts/purgeExpiredAssets.js
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/kms/uploads
+
+StandardOutput=journal
+StandardError=journal

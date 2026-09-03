@@ -1,0 +1,32 @@
+[Unit]
+Description=Backup terenkripsi KMS Kemenhub
+RequiresMountsFor=__BACKUP_MOUNT__ /var/lib/kms/uploads
+After=postgresql.service network-online.target
+
+[Service]
+Type=oneshot
+User=kms-backup
+Group=kms-backup
+SupplementaryGroups=kms-files
+RuntimeDirectory=kms-backup
+RuntimeDirectoryMode=0700
+ExecStart=/usr/local/sbin/kms-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadOnlyPaths=/var/lib/kms/uploads /etc/kms
+ReadWritePaths=__BACKUP_MOUNT__

@@ -1,0 +1,14 @@
+# Pertahankan administrasi lokal postgres melalui peer.
+local   all          postgres                              peer
+
+# Aplikasi, migrasi, dan backup hanya melalui TCP loopback + SCRAM.
+host    kms_project  kms_app       127.0.0.1/32            scram-sha-256
+host    kms_project  kms_migrator  127.0.0.1/32            scram-sha-256
+host    kms_project  kms_backup    127.0.0.1/32            scram-sha-256
+host    kms_project  kms_app       ::1/128                 scram-sha-256
+host    kms_project  kms_migrator  ::1/128                 scram-sha-256
+host    kms_project  kms_backup    ::1/128                 scram-sha-256
+
+# Tolak koneksi lain. Gabungkan dengan hati-hati bila server juga melayani DB lain.
+host    all          all           0.0.0.0/0               reject
+host    all          all           ::0/0                   reject

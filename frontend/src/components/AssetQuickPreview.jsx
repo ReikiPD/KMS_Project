@@ -2,6 +2,8 @@ import { Badge, Button, Modal } from "@idds/react";
 import { ArrowRight, Eye, FileText, PlayCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { uploadUrl } from "../lib/api";
+import { publicAssetPath } from "../lib/routes";
+import PdfDocumentViewer from "./PdfDocumentViewer";
 
 export default function AssetQuickPreview({ asset, open, onClose, detailPath }) {
   const navigate = useNavigate();
@@ -10,17 +12,17 @@ export default function AssetQuickPreview({ asset, open, onClose, detailPath }) 
   const fileUrl = uploadUrl(asset.file_url);
   const openDetail = () => {
     onClose?.();
-    navigate(detailPath || `/detail/${asset.id}`);
+    navigate(detailPath || publicAssetPath(asset));
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Pratinjau pengetahuan" size="lg">
+    <Modal open={open} onClose={onClose} title="Preview pengetahuan" size="lg">
       <div className="kms-quick-preview">
         <div className="kms-quick-preview-media">
           {fileUrl ? (
             video
               ? <video controls playsInline preload="metadata" poster={uploadUrl(asset.thumbnail_url) || undefined}><source src={fileUrl} /></video>
-              : <iframe title={`Pratinjau ${asset.title}`} src={`${fileUrl}#view=FitH`} />
+              : <PdfDocumentViewer fileUrl={fileUrl} title={asset.title} compact />
           ) : (
             <div className="kms-quick-preview-empty">{video ? <PlayCircle size={42} /> : <FileText size={42} />}<span>File utama belum tersedia</span></div>
           )}

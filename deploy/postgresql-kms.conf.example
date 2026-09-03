@@ -1,0 +1,6 @@
+listen_addresses = '127.0.0.1,::1'
+password_encryption = 'scram-sha-256'
+ssl = off
+log_connections = on
+log_disconnections = on
+log_line_prefix = '%m [%p] %q%u@%d '

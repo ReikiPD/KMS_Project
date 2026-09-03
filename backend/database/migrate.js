@@ -1,22 +1,28 @@
+const fs = require("fs/promises");
+const path = require("path");
 const pool = require("./db");
 const { runSqlFile } = require("./runSqlFile");
 
+const MIGRATION_FILE_PATTERN = /^\d{3}_[a-z0-9_]+\.sql$/;
+
+const listMigrationFiles = async () => {
+  const migrationsDirectory = path.join(__dirname, "migrations");
+  const entries = await fs.readdir(migrationsDirectory, { withFileTypes: true });
+  const migrations = entries
+    .filter((entry) => entry.isFile() && MIGRATION_FILE_PATTERN.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right, "en"));
+
+  if (!migrations.length) throw new Error("Tidak ada file migrasi database yang ditemukan");
+  return migrations;
+};
+
 const runMigrations = async () => {
-  const migrations = [
-    "migrations/001_add_featured_assets.sql",
-    "migrations/002_add_comment_indexes.sql",
-    "migrations/003_create_notifications.sql",
-    "migrations/004_add_asset_view_events.sql",
-    "migrations/005_discovery_security_foundation.sql",
-    "migrations/006_remove_video_transcript.sql",
-    "migrations/007_roles_content_cleanup.sql",
-    "migrations/008_allow_duplicate_asset_titles.sql",
-    "migrations/009_add_performance_indexes.sql",
-  ];
+  const migrations = await listMigrationFiles();
   for (const migration of migrations) {
-    await runSqlFile(migration);
+    await runSqlFile(path.join("migrations", migration));
   }
-  console.log("Migrasi database KMS selesai.");
+  console.log(`Migrasi database KMS selesai (${migrations.length} file).`);
 };
 
 if (require.main === module) {
@@ -29,4 +35,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runMigrations };
+module.exports = { listMigrationFiles, runMigrations };

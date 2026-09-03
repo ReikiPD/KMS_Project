@@ -15,7 +15,7 @@ export default function PublicFooter() {
         <div>
           <Link to="/" className="kms-footer-brand flex w-fit items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Kembali ke beranda KMS Kemenhub">
             <span className="kms-footer-mark"><BookOpen size={22} aria-hidden="true" /></span>
-            <div><p className="kms-on-brand font-bold">KMS Kemenhub</p><p className="kms-on-brand-muted text-xs">Pusat Pengetahuan Perhubungan</p></div>
+            <div><p className="kms-on-brand font-bold">KMS Kemenhub</p><p className="kms-on-brand-muted text-xs">Knowledge Management System Kementerian Perhubungan</p></div>
           </Link>
           <p className="kms-on-brand-muted mt-4 max-w-md text-sm leading-6">Ruang berbagi pengetahuan untuk mendukung transportasi Indonesia yang terhubung, aman, dan berkelanjutan.</p>
         </div>

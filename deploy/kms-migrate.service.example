@@ -1,0 +1,32 @@
+[Unit]
+Description=KMS Kemenhub database migration
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=kms
+Group=kms-app
+WorkingDirectory=/opt/kms/migration/backend
+EnvironmentFile=/etc/kms/backend.env
+# File kedua hanya menimpa DATABASE_URL dengan kredensial kms_migrator.
+EnvironmentFile=/etc/kms/migrator.env
+ExecStart=/usr/bin/node database/migrate.js
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadOnlyPaths=/opt/kms/migration
+
+[Install]
+WantedBy=multi-user.target

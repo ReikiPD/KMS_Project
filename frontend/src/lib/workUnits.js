@@ -6,13 +6,16 @@ const EXACT_SHORT_NAMES = new Map([
   ["direktorat jenderal perhubungan laut", "Ditjen Hubla"],
   ["direktorat jenderal perhubungan udara", "Ditjen Hubud"],
   ["direktorat jenderal perkeretaapian", "Ditjen Perkeretaapian"],
+  ["direktorat jenderal integrasi transportasi dan multimoda", "Ditjen Intram"],
   ["pusat pengembangan sumber daya manusia perhubungan", "PPSDM"],
   ["badan pengembangan sumber daya manusia perhubungan", "BPSDM"],
   ["badan kebijakan transportasi", "BKT"],
   ["sekretariat badan kebijakan transportasi", "Sekretariat BKT"],
   ["pusat kebijakan sarana transportasi", "Pusjak Sarana"],
   ["pusat kebijakan prasarana transportasi dan integrasi moda", "Pusjak PTIM"],
+  ["pusat kebijakan prasarana dan integrasi moda", "Pusjak PIM"],
   ["pusat kebijakan lalu lintas, angkutan, dan transportasi perkotaan", "Pusjak LLATP"],
+  ["pusat kebijakan lalu lintas dan angkutan transportasi", "Pusjak LLAT"],
   ["pusat kebijakan keselamatan dan keamanan transportasi", "Pusjak KKT"],
 ]);
 

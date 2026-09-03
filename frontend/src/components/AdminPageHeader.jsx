@@ -11,7 +11,7 @@ export default function AdminPageHeader({ eyebrow, title, description, breadcrum
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-content-primary md:text-3xl">{title}</h1>
           {description && <p className="mt-2 max-w-2xl text-sm leading-6 text-content-secondary">{description}</p>}
         </div>
-        {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
+        {actions && <div className="kms-admin-page-actions flex flex-wrap gap-3">{actions}</div>}
       </div>
     </header>
   );

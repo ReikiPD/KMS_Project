@@ -73,6 +73,7 @@ export default function useDraftAutosave({ ready = true, draftId: suppliedDraftI
       payload.append("content", currentForm.content || "");
       if (currentForm.video_duration_seconds !== "" && currentForm.video_duration_seconds !== null && currentForm.video_duration_seconds !== undefined) payload.append("video_duration_seconds", currentForm.video_duration_seconds);
       payload.append("video_chapters", JSON.stringify(currentForm.video_chapters || []));
+      payload.append("allow_download", String(currentForm.allow_download !== false));
       if (currentForm.category_id) payload.append("category_id", currentForm.category_id);
       if (currentForm.work_unit_id) payload.append("work_unit_id", currentForm.work_unit_id);
       if (currentForm.authorId) payload.append("authorId", currentForm.authorId);

@@ -1,15 +1,27 @@
 const fs = require("fs/promises");
 const path = require("path");
 const { PDFParse } = require("pdf-parse");
+const { uploadsDirectory } = require("../config/storage");
 
-const uploadsDirectory = path.join(__dirname, "../uploads");
 const MAX_EXTRACTED_TEXT = 200000;
+
+const resolveUploadFile = (fileName) => {
+  const normalizedName = path.basename(String(fileName || ""));
+  if (!normalizedName || normalizedName !== fileName) {
+    throw new Error("Nama file unggahan tidak valid");
+  }
+  const target = path.resolve(uploadsDirectory, normalizedName);
+  if (path.dirname(target) !== path.resolve(uploadsDirectory)) {
+    throw new Error("File berada di luar direktori unggahan");
+  }
+  return target;
+};
 
 const extractPdfText = async (fileName) => {
   if (!fileName) return "";
   let parser;
   try {
-    const data = await fs.readFile(path.join(uploadsDirectory, fileName));
+    const data = await fs.readFile(resolveUploadFile(fileName));
     parser = new PDFParse({ data });
     const result = await parser.getText();
     return (result.text || "").replace(/\s+/g, " ").trim().slice(0, MAX_EXTRACTED_TEXT);
@@ -22,4 +34,4 @@ const extractPdfText = async (fileName) => {
   }
 };
 
-module.exports = { extractPdfText, uploadsDirectory };
+module.exports = { extractPdfText, resolveUploadFile, uploadsDirectory };

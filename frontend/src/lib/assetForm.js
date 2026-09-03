@@ -12,7 +12,7 @@ export const ASSET_TYPE_OPTIONS = [
 
 export const ASSET_STATUS_OPTIONS = [
   { label: "Simpan sebagai Draf", value: "false" },
-  { label: "Publikasikan Langsung", value: "true" },
+  { label: "Ajukan untuk Verifikasi", value: "true" },
 ];
 
 export const createAssetFormData = (authorId = "") => ({
@@ -22,6 +22,7 @@ export const createAssetFormData = (authorId = "") => ({
   category_id: null,
   work_unit_id: null,
   is_published: "false",
+  allow_download: true,
   video_duration_seconds: "",
   video_chapters: [],
   authorId,
@@ -33,14 +34,17 @@ export const assetToFormData = (asset) => ({
   content: asset.content || "",
   category_id: asset.category_id ? String(asset.category_id) : null,
   work_unit_id: asset.work_unit_id ? String(asset.work_unit_id) : null,
-  is_published: asset.is_published ? "true" : "false",
+  is_published: asset.is_published || asset.publication_status === "pending_review" ? "true" : "false",
+  allow_download: asset.allow_download !== false,
   video_duration_seconds: asset.video_duration_seconds ?? "",
   video_chapters: Array.isArray(asset.video_chapters) ? asset.video_chapters : [],
   authorId: asset.author_id ? String(asset.author_id) : "",
 });
 
 export const toSelectOptions = (items) => items.map((item) => ({
-  label: item.name,
+  label: item.echelon_level
+    ? `${Number(item.echelon_level) > 1 ? "↳ " : ""}Eselon ${({ 1: "I", 2: "II", 3: "III" })[Number(item.echelon_level)] || "I"} · ${item.alias || item.name}${item.alias ? ` — ${item.name}` : ""}`
+    : item.name,
   value: String(item.id),
 }));
 
@@ -64,6 +68,7 @@ export const buildAssetFormPayload = (formData, thumbnailFile, mainFile) => {
   payload.append("content", formData.content);
   payload.append("video_chapters", JSON.stringify(formData.video_chapters || []));
   payload.append("is_published", formData.is_published);
+  payload.append("allow_download", String(formData.allow_download !== false));
 
   if (formData.authorId) payload.append("authorId", formData.authorId);
   if (formData.video_duration_seconds !== "") payload.append("video_duration_seconds", formData.video_duration_seconds);

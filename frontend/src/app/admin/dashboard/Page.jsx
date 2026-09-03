@@ -8,13 +8,16 @@ import {
   CardPlain,
   Chip,
   DatePicker,
+  CircleProgressBar,
   Modal,
   Pagination,
+  ProgressBar,
   Skeleton,
 } from "@idds/react";
 import {
   BookOpenCheck,
   BarChart3,
+  Building2,
   CalendarDays,
   Eye,
   FileText,
@@ -26,12 +29,22 @@ import {
   TrendingDown,
   Minus,
   UserRoundCheck,
+  Activity,
+  Database,
+  HardDrive,
+  RefreshCw,
+  Server,
+  ShieldCheck,
 } from "lucide-react";
+import MediaCompositionChart from "../../../components/MediaCompositionChart";
 import AdminPageHeader from "../../../components/AdminPageHeader";
 import MultipleSearchSelect from "../../../components/MultipleSearchSelect";
 import useAdminView from "../../../hooks/useAdminView";
-import { apiFetch, currentUser } from "../../../lib/api";
+import { apiFetch } from "../../../lib/api";
+import { useAuth } from "../../../contexts/AuthContext";
+import { hasPermission } from "../../../lib/permissions";
 import { searchSelectionsToQuery } from "../../../lib/search";
+import { adminAssetPath } from "../../../lib/routes";
 
 const PERIOD_OPTIONS = [
   { label: "Sepanjang waktu", value: "all" },
@@ -44,6 +57,22 @@ const PERIOD_OPTIONS = [
 
 const validPeriods = new Set(PERIOD_OPTIONS.map((option) => option.value));
 const formatNumber = (value) => new Intl.NumberFormat("id-ID").format(Number(value) || 0);
+const formatBytes = (value) => {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length);
+  return `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(bytes / (1024 ** exponent))} ${units[exponent - 1]}`;
+};
+const formatUptime = (secondsValue) => {
+  const seconds = Number(secondsValue) || 0;
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days) return `${days} hari ${hours} jam`;
+  if (hours) return `${hours} jam ${minutes} menit`;
+  return `${Math.max(1, minutes)} menit`;
+};
 const formatDate = (value) => value ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value)) : "—";
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const offsetIso = (days) => {
@@ -60,6 +89,24 @@ function TrendChart({ data }) {
   const max = Math.max(1, ...data.map((item) => Number(item.asset_count) || 0));
   if (!data.length) return <div className="flex min-h-52 items-center justify-center text-center text-sm text-content-secondary">Belum ada data pengetahuan terbit pada periode ini.</div>;
   return <div className="overflow-x-auto"><svg viewBox={`0 0 ${Math.max(560, data.length * 72)} 220`} className="min-w-[560px] w-full" role="img" aria-label="Grafik tren penambahan pengetahuan"><line x1="42" y1="178" x2={Math.max(520, data.length * 72 - 12)} y2="178" stroke="currentColor" className="text-border-subtle" /><line x1="42" y1="26" x2="42" y2="178" stroke="currentColor" className="text-border-subtle" />{data.map((item, index) => { const width = 34; const gap = Math.max(18, (Math.max(500, data.length * 72 - 70) / data.length) - width); const x = 52 + index * (width + gap); const height = Math.max(3, (Number(item.asset_count) || 0) / max * 132); return <g key={item.bucket || item.label}><rect x={x} y={178 - height} width={width} height={height} rx="6" className="fill-[var(--kms-blue-600)]" /><text x={x + width / 2} y={198} textAnchor="middle" className="fill-content-secondary text-[10px]">{item.label}</text><text x={x + width / 2} y={Math.max(18, 170 - height)} textAnchor="middle" className="fill-content-primary text-[11px] font-semibold">{item.asset_count}</text></g>; })}</svg></div>;
+}
+
+function EchelonComparisonChart({ data }) {
+  const [metric, setMetric] = useState("published_asset_count");
+  const options = [
+    { label: "Aset terbit", value: "published_asset_count" },
+    { label: "Jumlah dilihat", value: "total_view_count" },
+  ];
+  const max = Math.max(1, ...data.map((item) => Number(item[metric]) || 0));
+  const width = Math.max(760, data.length * 104);
+  const metricLabel = metric === "published_asset_count" ? "aset terbit" : "jumlah dilihat";
+  return <CardPlain className="kms-admin-surface p-4 md:p-5">
+    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><p className="flex items-center gap-2 text-base font-bold text-content-primary"><Building2 size={18} /> Analisis per Eselon I</p><p className="mt-1 text-xs text-content-secondary">Sumbu X menampilkan Eselon I, sedangkan sumbu Y menampilkan {metricLabel} pada periode aktif.</p></div><Chip options={options} selected={metric} onSelect={setMetric} size="small" variant="outline" /></div>
+    {!data.length ? <div className="flex min-h-56 items-center justify-center text-sm text-content-secondary">Belum ada data Eselon I.</div> : <div className="overflow-x-auto pb-2"><svg viewBox={`0 0 ${width} 250`} className="min-w-[760px] w-full" role="img" aria-label={`Grafik perbandingan ${metricLabel} setiap Eselon I`}>
+      {[0, 0.25, 0.5, 0.75, 1].map((step) => { const y = 188 - step * 148; return <g key={step}><line x1="46" y1={y} x2={width - 18} y2={y} className="kms-admin-chart-grid" /><text x="38" y={y + 4} textAnchor="end" className="kms-admin-chart-axis-label">{Math.round(max * step)}</text></g>; })}
+      {data.map((item, index) => { const value = Number(item[metric]) || 0; const slot = (width - 82) / data.length; const barWidth = 46; const x = 58 + index * slot + Math.max(0, (slot - barWidth) / 2); const height = value ? Math.max(5, value / max * 148) : 2; return <g key={item.public_id}><title>{`${item.name}: ${formatNumber(value)} ${metricLabel}`}</title><rect x={x} y={188 - height} width={barWidth} height={height} rx="8" className="kms-admin-chart-bar" /><text x={x + barWidth / 2} y={178 - height} textAnchor="middle" className="kms-admin-chart-value">{formatNumber(value)}</text><text x={x + barWidth / 2} y="214" textAnchor="middle" className="kms-admin-chart-axis-label">{item.alias || item.name}</text></g>; })}
+    </svg></div>}
+  </CardPlain>;
 }
 
 function KpiAnalysisModal({ open, onClose, organization, comparison, trend, periodLabel, granularity }) {
@@ -124,7 +171,7 @@ function RankingList({ metric, items, onOpenAsset, compact = false }) {
     const secondaryText = isStaffMetric
       ? `${item.department || "Unit belum diisi"}${item.email ? ` · ${item.email}` : ""}`
       : item.category_name || (item.asset_type === "video" ? "Video pembelajaran" : "Dokumen pengetahuan");
-    return <li key={`${metric}-${item.id || item.label || item.query}`} className="py-3 first:pt-0 last:pb-0"><button type="button" disabled={!isAssetMetric} onClick={() => isAssetMetric && onOpenAsset(item.id)} className={`flex w-full items-start gap-3 text-left ${isAssetMetric ? "group" : "cursor-default"}`}><span className="kms-admin-ranking-number">{item.rank || index + 1}</span><span className="min-w-0 flex-1"><span className={`block ${compact ? "line-clamp-1" : "line-clamp-2"} text-sm font-semibold text-content-primary ${isAssetMetric ? "group-hover:underline" : ""}`}>{primaryText}</span>{!isSearchMetric && <span className="mt-1 block truncate text-xs text-content-secondary">{secondaryText}</span>}</span><span className="shrink-0 text-xs font-bold text-content-guide">{formatNumber(item.metric_value ?? item.search_count ?? item.view_count ?? item.share_count)}<span className="ml-1 font-medium text-content-secondary">{meta.unit}</span></span></button></li>;
+    return <li key={`${metric}-${item.public_id || item.id || item.label || item.query}`} className="py-3 first:pt-0 last:pb-0"><button type="button" disabled={!isAssetMetric} onClick={() => isAssetMetric && onOpenAsset(item)} className={`flex w-full items-start gap-3 text-left ${isAssetMetric ? "group" : "cursor-default"}`}><span className="kms-admin-ranking-number">{item.rank || index + 1}</span><span className="min-w-0 flex-1"><span className={`block ${compact ? "line-clamp-1" : "line-clamp-2"} text-sm font-semibold text-content-primary ${isAssetMetric ? "group-hover:underline" : ""}`}>{primaryText}</span>{!isSearchMetric && <span className="mt-1 block truncate text-xs text-content-secondary">{secondaryText}</span>}</span><span className="shrink-0 text-xs font-bold text-content-guide">{formatNumber(item.metric_value ?? item.search_count ?? item.view_count ?? item.share_count)}<span className="ml-1 font-medium text-content-secondary">{meta.unit}</span></span></button></li>;
   })}</ol>;
 }
 
@@ -189,14 +236,39 @@ function DashboardSkeleton() {
   return <div className="mt-5 space-y-5"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[1, 2, 3, 4].map((item) => <Skeleton key={item} height="150px" rounded="lg" />)}</div><Skeleton height="300px" rounded="lg" /><div className="grid gap-5 xl:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} height="340px" rounded="lg" />)}</div></div>;
 }
 
+function SystemHealthPanel({ data, loading, error, onRefresh }) {
+  const storage = data?.storage || {};
+  const content = data?.content || {};
+  const services = data?.services || {};
+  const breakdown = storage.breakdown || {};
+  const storageVariant = Number(storage.usedPercent) >= 85 ? "warning" : "primary";
+  const mediaRows = [
+    { key: "videos", label: "Video", color: "var(--kms-video-blue)" },
+    { key: "documents", label: "Dokumen PDF", color: "var(--kms-pdf-red)" },
+    { key: "images", label: "Gambar", color: "var(--kms-teal-600)" },
+    { key: "other", label: "File lainnya", color: "var(--kms-gold-500)" },
+  ];
+
+  return <section aria-labelledby="system-health-heading">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="kms-admin-section-eyebrow">Operasional aplikasi</p><h2 id="system-health-heading" className="mt-1 text-lg font-bold text-content-primary">Kesehatan sistem dan penyimpanan</h2><p className="mt-1 text-sm text-content-secondary">Ringkasan aman tanpa menampilkan alamat server, lokasi file, atau kredensial.</p></div><Button hierarchy="secondary" size="sm" onClick={onRefresh} disabled={loading} prefixIcon={<RefreshCw size={15} className={loading ? "animate-spin" : ""} />}>Perbarui</Button></div>
+    {error && <Alert className="mb-4" variant="critical" title="Pemantauan belum tersedia" message={error} />}
+    {loading && !data ? <div className="grid gap-4 xl:grid-cols-3"><Skeleton height="250px" rounded="lg" /><Skeleton height="250px" rounded="lg" /><Skeleton height="250px" rounded="lg" /></div> : data && <div className="grid gap-4 xl:grid-cols-3">
+      <CardPlain className="kms-admin-surface p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-content-primary">Status layanan</p><p className="mt-1 text-xs text-content-secondary">Kondisi proses aplikasi saat pemeriksaan.</p></div><span className="kms-admin-metric-icon kms-admin-metric-icon--teal"><Activity size={19} /></span></div><div className="mt-5 space-y-3"><div className="kms-system-health-row"><span><Server size={16} />Backend API</span><span className={`kms-service-status ${services.api?.status === "online" ? "kms-service-status--online" : "kms-service-status--offline"}`}><span aria-hidden="true" />{services.api?.status === "online" ? "Aktif" : "Gangguan"}</span></div><div className="kms-system-health-row"><span><Database size={16} />PostgreSQL</span><span className={`kms-service-status ${services.database?.status === "online" ? "kms-service-status--online" : "kms-service-status--offline"}`}><span aria-hidden="true" />{services.database?.status === "online" ? "Terhubung" : "Gangguan"}</span></div><div className="kms-system-health-row"><span><ShieldCheck size={16} />Peringatan data</span><strong>{formatNumber(data.warnings)}</strong></div></div><div className="mt-4 rounded-lg bg-page-secondary p-3 text-xs text-content-secondary"><p>Waktu aktif backend</p><strong className="mt-1 block text-sm text-content-primary">{formatUptime(services.api?.uptimeSeconds)}</strong><p className="mt-2">Memori aplikasi: {formatBytes(data.memory?.residentBytes)}</p></div></CardPlain>
+      <CardPlain className="kms-admin-surface p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-content-primary">Kapasitas server</p><p className="mt-1 text-xs text-content-secondary">Ruang disk yang dipakai seluruh sistem.</p></div><span className="kms-admin-metric-icon"><HardDrive size={19} /></span></div><div className="mt-5 flex items-center gap-5"><span role="progressbar" aria-label="Kapasitas disk terpakai" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(Number(storage.usedPercent) || 0)} className="shrink-0"><CircleProgressBar progress={Math.min(100, Number(storage.usedPercent) || 0)} diameter={82} strokeWidth={8} variant={storageVariant} /></span><div><p className="text-2xl font-bold text-content-primary">{storage.usedPercent || 0}%</p><p className="text-xs text-content-secondary">kapasitas terpakai</p><p className="mt-2 text-sm font-semibold text-content-primary">{formatBytes(storage.freeBytes)} tersedia</p><p className="text-xs text-content-secondary">dari {formatBytes(storage.totalBytes)}</p></div></div><div className="mt-5 border-t border-border-subtle pt-4"><div className="flex justify-between gap-3 text-xs"><span className="text-content-secondary">Unggahan KMS</span><strong className="text-content-primary">{formatBytes(storage.uploadsBytes)} · {formatNumber(storage.uploadFileCount)} file</strong></div><ProgressBar className="mt-2" progress={Math.min(100, (Number(storage.uploadsBytes) / Math.max(1, Number(storage.totalBytes))) * 100)} /></div></CardPlain>
+      <CardPlain className="kms-admin-surface p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-content-primary">Komposisi media</p><p className="mt-1 text-xs text-content-secondary">Persentase pemakaian ruang unggahan berdasarkan tipe.</p></div><span className="kms-admin-metric-icon kms-admin-metric-icon--gold"><FolderOpen size={19} /></span></div><div className="mt-5"><MediaCompositionChart centerLabel="penyimpanan" valueFormatter={formatBytes} items={mediaRows.map((row) => ({ ...row, value: breakdown[row.key]?.bytes, detail: `${formatNumber(breakdown[row.key]?.files)} file` }))} /></div><div className="mt-4 grid grid-cols-2 gap-2 border-t border-border-subtle pt-4"><div className="rounded-lg bg-page-secondary p-2.5"><span className="text-[11px] text-content-secondary">Aset terbit</span><strong className="mt-1 block text-sm text-content-primary">{formatNumber(content.publishedAssets)}</strong></div><div className="rounded-lg bg-page-secondary p-2.5"><span className="text-[11px] text-content-secondary">Draf</span><strong className="mt-1 block text-sm text-content-primary">{formatNumber(content.draftAssets)}</strong></div></div></CardPlain>
+    </div>}
+  </section>;
+}
+
 export default function DashboardPage() {
+  const { user: authenticatedUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const user = currentUser() || {};
-  const { isActingAsEmployee, isAdminViewingUser, isLeaderViewingEmployee, isEmployeeContext, employeeId, staffMember, withEmployeeContext, exitEmployeeContext } = useAdminView();
+  const { accessUser, isActingAsEmployee, isAdminViewingUser, isScopedViewingAccount, isNestedScopedContext, isEmployeeContext, employeeId, staffMember, withEmployeeContext, exitEmployeeContext } = useAdminView();
+  const user = accessUser || authenticatedUser || {};
   const queryPeriod = searchParams.get("period");
   const period = validPeriods.has(queryPeriod) ? queryPeriod : "all";
-  const authorId = searchParams.get("authorId") || (isEmployeeContext ? employeeId : "");
+  const authorId = isEmployeeContext ? employeeId : "";
   const startDate = searchParams.get("startDate") || "";
   const endDate = searchParams.get("endDate") || "";
   const [customDates, setCustomDates] = useState([startDate || offsetIso(-29), endDate || todayIso()]);
@@ -207,9 +279,48 @@ export default function DashboardPage() {
   const [rankingMetric, setRankingMetric] = useState(null);
   const [kpiAnalysisOpen, setKpiAnalysisOpen] = useState(false);
   const [fallbackStaffRankings, setFallbackStaffRankings] = useState({ published: [], views: [], created: [] });
-  const canWrite = ["pegawai", "admin"].includes(user.role) && !isAdminViewingUser;
+  const [systemHealth, setSystemHealth] = useState(null);
+  const [systemHealthLoading, setSystemHealthLoading] = useState(false);
+  const [systemHealthError, setSystemHealthError] = useState("");
+  const [systemHealthRefresh, setSystemHealthRefresh] = useState(0);
+  const canCreate = hasPermission(user, "assets", "post");
+  const canManage = canCreate || hasPermission(user, "assets", "edit") || hasPermission(user, "assets", "delete");
   const showPersonal = user.role === "pegawai" || isActingAsEmployee || Boolean(authorId);
-  const showStaffRankings = user.role === "admin" && !isEmployeeContext;
+  const showStaffRankings = authenticatedUser?.role === "admin" && !isEmployeeContext;
+  const showSystemHealth = authenticatedUser?.role === "admin" && !isEmployeeContext;
+  const showEchelonComparison = !isEmployeeContext && user.role !== "pegawai";
+  const isGlobalAdmin = authenticatedUser?.role === "admin" && !isEmployeeContext;
+  const availableAnalyticsResource = [1, 2, 3]
+    .map((level) => `analytics_echelon_${level}`)
+    .find((resource) => hasPermission(user, resource, "view")) || "";
+  const organizationAnalyticsPath = !isGlobalAdmin && user.work_unit_public_id && availableAnalyticsResource
+    ? "/admin/work-units/analytics"
+    : "";
+
+  useEffect(() => {
+    if (organizationAnalyticsPath) navigate(withEmployeeContext(organizationAnalyticsPath), { replace: true });
+  }, [navigate, organizationAnalyticsPath, withEmployeeContext]);
+
+  useEffect(() => {
+    if (!showSystemHealth) return undefined;
+    const controller = new AbortController();
+    const loadSystemHealth = async () => {
+      setSystemHealthLoading(true);
+      setSystemHealthError("");
+      try {
+        const response = await apiFetch("/api/users/admin/system-health", { auth: true, signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Gagal memuat status sistem");
+        if (!controller.signal.aborted) setSystemHealth(result);
+      } catch (loadError) {
+        if (loadError.name !== "AbortError" && !controller.signal.aborted) setSystemHealthError(loadError.message);
+      } finally {
+        if (!controller.signal.aborted) setSystemHealthLoading(false);
+      }
+    };
+    loadSystemHealth();
+    return () => controller.abort();
+  }, [showSystemHealth, systemHealthRefresh]);
 
   useEffect(() => {
     if (period === "custom") setCustomDates([startDate || offsetIso(-29), endDate || todayIso()]);
@@ -224,6 +335,7 @@ export default function DashboardPage() {
   }, [setSearchParams]);
 
   useEffect(() => {
+    if (organizationAnalyticsPath) return undefined;
     const controller = new AbortController();
     const load = async () => {
       setLoading(true);
@@ -244,7 +356,7 @@ export default function DashboardPage() {
     };
     load();
     return () => controller.abort();
-  }, [authorId, endDate, period, startDate]);
+  }, [authorId, endDate, organizationAnalyticsPath, period, startDate]);
 
   useEffect(() => {
     if (!showStaffRankings || !dashboard || dashboard.staffRankings) {
@@ -290,7 +402,12 @@ export default function DashboardPage() {
     setPeriodError("");
     updateParams({ period: "custom", startDate: nextStart, endDate: nextEnd });
   };
-  const openAsset = (id) => navigate(withEmployeeContext(`/admin/assets/${id}`));
+  const openAsset = (assetOrId) => {
+    const asset = typeof assetOrId === "object"
+      ? assetOrId
+      : (dashboard?.personal?.recentAssets || []).find((item) => String(item.id) === String(assetOrId));
+    if (asset) navigate(withEmployeeContext(adminAssetPath(asset)));
+  };
   const openAssets = () => navigate(withEmployeeContext("/admin/assets"));
   const openCreate = () => navigate(withEmployeeContext("/admin/assets/create"));
 
@@ -304,17 +421,20 @@ export default function DashboardPage() {
   const heading = isAdminViewingUser
     ? (staffMember?.role === "pimpinan" ? "Dashboard Pimpinan" : "Dashboard Akun")
     : isEmployeeContext ? "Dashboard Pegawai" : "Dashboard Pengetahuan";
-  const description = isActingAsEmployee ? `Admin sedang bekerja atas nama ${staffMember?.full_name || "Pegawai terpilih"}.` : isAdminViewingUser ? `Admin sedang melihat akun ${staffMember?.full_name || "terpilih"} dalam mode baca.` : isLeaderViewingEmployee ? `Pimpinan sedang melihat kontribusi ${staffMember?.full_name || "Pegawai terpilih"} dalam mode baca.` : user.role === "admin" ? "Pantau kinerja KMS secara keseluruhan dari satu tempat." : user.role === "pimpinan" ? "Pantau kinerja KMS secara keseluruhan dalam mode baca." : "Pantau kontribusi dan jangkauan knowledge Anda.";
+  const contextAccessLabel = canManage ? "sesuai hak akses role akun tersebut" : "dalam mode baca";
+  const description = isActingAsEmployee ? `Admin sedang bekerja atas nama ${staffMember?.full_name || "Pegawai terpilih"} ${contextAccessLabel}.` : isAdminViewingUser ? `Admin sedang mengakses akun ${staffMember?.full_name || "terpilih"} ${contextAccessLabel}.` : isScopedViewingAccount ? `Anda sedang mengakses kontribusi ${staffMember?.full_name || "akun terpilih"} ${contextAccessLabel}.` : user.role === "admin" ? "Pantau kinerja KMS secara keseluruhan dari satu tempat." : "Pantau kinerja KMS sesuai hak akses role Anda.";
 
   return <div className="kms-admin-dashboard mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
-    <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode pantau akun" : isLeaderViewingEmployee ? "Mode pantau Pegawai" : user.role === "pimpinan" ? "Ruang Pimpinan" : user.role === "admin" ? "Ruang Admin" : "Ruang Pegawai"} title={heading} description={description} breadcrumbs={[{ label: "Dasbor" }]} actions={<>{isEmployeeContext && <Button hierarchy="tertiary" onClick={exitEmployeeContext} prefixIcon={<UserRoundCheck size={16} />}>{isActingAsEmployee || isAdminViewingUser ? "Kembali ke Ruang Admin" : "Kembali ke Dashboard Pimpinan"}</Button>}<Button hierarchy="secondary" onClick={openAssets} prefixIcon={<FolderOpen size={17} />}>{canWrite ? "Kelola aset" : "Lihat aset"}</Button>{canWrite && (user.role === "pegawai" || isActingAsEmployee) && <Button hierarchy="primary" onClick={openCreate} prefixIcon={<BookOpenCheck size={17} />}>Unggah pengetahuan</Button>}</>} />
+    <AdminPageHeader eyebrow={isEmployeeContext ? "Mode akses akun" : user.role === "admin" ? "Ruang Admin" : `Ruang ${user.role?.replaceAll("_", " ") || "Pegawai"}`} title={heading} description={description} breadcrumbs={[{ label: "Dasbor" }]} actions={<>{isEmployeeContext && <Button hierarchy="tertiary" onClick={exitEmployeeContext} prefixIcon={<UserRoundCheck size={16} />}>{isNestedScopedContext ? "Kembali ke akun sebelumnya" : authenticatedUser?.role === "admin" ? "Kembali ke Ruang Admin" : "Kembali ke akun utama"}</Button>}<Button hierarchy="secondary" onClick={openAssets} prefixIcon={<FolderOpen size={17} />}>{canManage ? "Kelola aset" : "Lihat aset"}</Button>{canCreate && <Button hierarchy="primary" onClick={openCreate} prefixIcon={<BookOpenCheck size={17} />}>Unggah pengetahuan</Button>}</>} />
     <PeriodToolbar period={period} customDates={customDates} onPeriodChange={selectPeriod} onDatesChange={setCustomDates} onApply={applyCustomPeriod} error={periodError} />
     {error && <Alert variant="critical" title="Dashboard tidak dapat dimuat" message={error} />}
     {loading ? <DashboardSkeleton /> : dashboard && <div className="mt-5 space-y-5">
       <section aria-labelledby="organization-overview-heading"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="kms-admin-section-eyebrow">Analitik KMS</p><h2 id="organization-overview-heading" className="mt-1 text-lg font-bold text-content-primary">{isEmployeeContext ? "Ringkasan kontribusi Pegawai" : "Ringkasan aset terbit"}</h2></div><div className="flex flex-wrap items-center gap-2"><Badge type="soft" variant="info" text={periodLabel} /><Button hierarchy="secondary" size="sm" prefixIcon={<BarChart3 size={16} />} onClick={() => setKpiAnalysisOpen(true)}>Lihat analisis KPI</Button></div></div><div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"><MetricCard icon={BookOpenCheck} label="Pengetahuan terbit" value={organization.published_asset_count} description={periodInfo.viewMetric === "period" ? "Diterbitkan pada periode terpilih" : "Aset aktif yang dapat diakses publik"} /><MetricCard icon={Eye} label="Total dilihat" value={organization.total_view_count} description={periodInfo.viewMetric === "period" ? "Kunjungan tercatat pada periode ini" : "Akumulasi kunjungan aset terbit"} tone="teal" /><MetricCard icon={FileText} label="Dokumen" value={organization.document_count} description={periodInfo.viewMetric === "period" ? "Diterbitkan pada periode ini" : "Dokumen dan artikel terbit"} tone="gold" /><MetricCard icon={PlayCircle} label="Video" value={organization.video_count} description={periodInfo.viewMetric === "period" ? "Diterbitkan pada periode ini" : "Video pembelajaran terbit"} tone="purple" /></div></section>
+      {showEchelonComparison && <section aria-label="Perbandingan Eselon I"><EchelonComparisonChart data={dashboard.echelonComparison || []} /></section>}
+      {showSystemHealth && <SystemHealthPanel data={systemHealth} loading={systemHealthLoading} error={systemHealthError} onRefresh={() => setSystemHealthRefresh((value) => value + 1)} />}
       <section aria-labelledby="ranking-heading"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="kms-admin-section-eyebrow">Penemuan dan jangkauan</p><h2 id="ranking-heading" className="mt-1 text-lg font-bold text-content-primary">Apa yang paling dicari, dilihat, dan dibagikan</h2></div></div><div className="grid gap-5 xl:grid-cols-3"><RankingCard metric="search" items={rankings.search || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /><RankingCard metric="view" items={rankings.view || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /><RankingCard metric="share" items={rankings.share || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /></div></section>
       {showStaffRankings && <section aria-labelledby="staff-ranking-heading"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><p className="kms-admin-section-eyebrow">Kontribusi Pegawai</p><h2 id="staff-ranking-heading" className="mt-1 text-lg font-bold text-content-primary">Peringkat kontribusi di seluruh KMS</h2><p className="mt-1 text-sm text-content-secondary">Menampilkan lima Pegawai teratas pada periode analitik aktif.</p></div></div><div className="grid gap-5 xl:grid-cols-3"><RankingCard metric="staff_published" items={staffRankings.published || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /><RankingCard metric="staff_views" items={staffRankings.views || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /><RankingCard metric="staff_created" items={staffRankings.created || []} onOpenRanking={setRankingMetric} onOpenAsset={openAsset} /></div></section>}
-      {showPersonal && <section className="grid items-start gap-5 lg:grid-cols-5"><CardPlain className="kms-admin-surface kms-admin-contribution-card p-5 lg:col-span-2"><div className="flex items-start justify-between gap-4"><div><p className="kms-admin-section-eyebrow">Kontribusi Pegawai</p><h2 className="mt-1 text-lg font-bold text-content-primary">Status knowledge pribadi</h2><p className="mt-1 text-sm leading-6 text-content-secondary">Draf hanya terlihat hingga diterbitkan.</p></div><span className="kms-admin-metric-icon kms-admin-metric-icon--teal" aria-hidden="true"><BookOpenCheck size={22} /></span></div><div className="mt-4 grid grid-cols-2 gap-3"><div className="kms-admin-personal-stat"><span>Total aset</span><strong>{formatNumber(personal.asset_count)}</strong></div><div className="kms-admin-personal-stat"><span>Sudah terbit</span><strong>{formatNumber(personal.published_asset_count)}</strong></div><div className="kms-admin-personal-stat"><span>Draf</span><strong>{formatNumber(personal.draft_count)}</strong></div><div className="kms-admin-personal-stat"><span>Total dilihat</span><strong>{formatNumber(personal.total_view_count)}</strong></div></div><Button hierarchy="secondary" size="sm" className="mt-4" onClick={openAssets}>Lihat aset</Button></CardPlain><Card className="overflow-hidden lg:col-span-3"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-5 py-4"><div><p className="text-base font-bold text-content-primary">Aset Terbaru</p><p className="mt-1 text-sm text-content-secondary">Unggahan terbaru selalu tampil tanpa filter periode.</p></div><Button hierarchy="tertiary" size="sm" onClick={openAssets}>Lihat semua</Button></div>{(personal.recentAssets || []).length ? <ul className="divide-y divide-border-subtle">{personal.recentAssets.map((asset) => <li key={asset.id}><button type="button" onClick={() => openAsset(asset.id)} className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-page-secondary"><span className="kms-admin-asset-type-icon" aria-hidden="true">{asset.asset_type === "video" ? <PlayCircle size={18} /> : <FileText size={18} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-content-primary">{asset.title}</span><span className="mt-1 block text-xs text-content-secondary">{formatDate(asset.created_at)} · {asset.category_name || "Tanpa kategori"} · {formatNumber(asset.view_count)} dilihat</span></span><Badge type="soft" variant={asset.is_published ? "success" : "warning"} text={asset.is_published ? "Terbit" : "Draf"} /></button></li>)}</ul> : <div className="flex min-h-44 items-center justify-center px-5 text-sm text-content-secondary">Belum ada aset dari Pegawai ini.</div>}</Card></section>}
+      {showPersonal && <section className="grid items-start gap-5 lg:grid-cols-5"><CardPlain className="kms-admin-surface kms-admin-contribution-card p-5 lg:col-span-2"><div className="flex items-start justify-between gap-4"><div><p className="kms-admin-section-eyebrow">Kontribusi Pegawai</p><h2 className="mt-1 text-lg font-bold text-content-primary">Status knowledge pribadi</h2><p className="mt-1 text-sm leading-6 text-content-secondary">Draf hanya terlihat hingga diterbitkan.</p></div><span className="kms-admin-metric-icon kms-admin-metric-icon--teal" aria-hidden="true"><BookOpenCheck size={22} /></span></div><div className="mt-4 grid grid-cols-2 gap-3"><div className="kms-admin-personal-stat"><span>Total aset</span><strong>{formatNumber(personal.asset_count)}</strong></div><div className="kms-admin-personal-stat"><span>Sudah terbit</span><strong>{formatNumber(personal.published_asset_count)}</strong></div><div className="kms-admin-personal-stat"><span>Draf</span><strong>{formatNumber(personal.draft_count)}</strong></div><div className="kms-admin-personal-stat"><span>Total dilihat</span><strong>{formatNumber(personal.total_view_count)}</strong></div></div><Button hierarchy="secondary" size="sm" className="mt-4" onClick={openAssets}>Lihat aset</Button></CardPlain><Card className="overflow-hidden lg:col-span-3"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border-subtle px-5 py-4"><div><p className="text-base font-bold text-content-primary">Aset Terbaru</p><p className="mt-1 text-sm text-content-secondary">Unggahan terbaru selalu tampil tanpa filter periode.</p></div><Button hierarchy="tertiary" size="sm" onClick={openAssets}>Lihat semua</Button></div>{(personal.recentAssets || []).length ? <ul className="divide-y divide-border-subtle">{personal.recentAssets.map((asset) => <li key={asset.id}><button type="button" onClick={() => openAsset(asset)} className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-page-secondary"><span className="kms-admin-asset-type-icon" aria-hidden="true">{asset.asset_type === "video" ? <PlayCircle size={18} /> : <FileText size={18} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-content-primary">{asset.title}</span><span className="mt-1 block text-xs text-content-secondary">{formatDate(asset.created_at)} · {asset.category_name || "Tanpa kategori"} · {formatNumber(asset.view_count)} dilihat</span></span><Badge type="soft" variant={asset.is_published ? "success" : "warning"} text={asset.is_published ? "Terbit" : "Draf"} /></button></li>)}</ul> : <div className="flex min-h-44 items-center justify-center px-5 text-sm text-content-secondary">Belum ada aset dari Pegawai ini.</div>}</Card></section>}
     </div>}
     <KpiAnalysisModal open={kpiAnalysisOpen} onClose={() => setKpiAnalysisOpen(false)} organization={organization} comparison={comparison} trend={dashboard?.publicationTrend || []} periodLabel={periodLabel} granularity={periodInfo.trendGranularity} />
     <RankingModal metric={rankingMetric || "search"} open={Boolean(rankingMetric)} onClose={() => setRankingMetric(null)} period={period} startDate={startDate} endDate={endDate} authorId={authorId} onOpenAsset={openAsset} />

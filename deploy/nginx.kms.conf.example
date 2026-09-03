@@ -1,10 +1,45 @@
+limit_req_zone $binary_remote_addr zone=kms_api:10m rate=20r/s;
+limit_conn_zone $binary_remote_addr zone=kms_conn:10m;
+
 server {
     listen 80;
-    server_name kms.example.kemenhub.go.id;
+    listen [::]:80;
+    server_name __SERVER_NAME__;
+    server_tokens off;
+    return 301 https://$host$request_uri;
+}
 
-    root /opt/kms/frontend/dist;
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name __SERVER_NAME__;
+    server_tokens off;
+
+    ssl_certificate __TLS_CERTIFICATE__;
+    ssl_certificate_key __TLS_PRIVATE_KEY__;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:KMS_TLS:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    ssl_prefer_server_ciphers off;
+
+    root /opt/kms/current/frontend/dist;
     index index.html;
     client_max_body_size 22m;
+    client_body_timeout 30s;
+    keepalive_timeout 65s;
+    limit_conn kms_conn 30;
+    limit_conn_status 429;
+    limit_req_status 429;
+
+    # Aktifkan hanya setelah sertifikat dipercaya seluruh klien Kemenhub:
+    # add_header Strict-Transport-Security "max-age=15552000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; frame-ancestors 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self'; form-action 'self'" always;
 
     gzip on;
     gzip_vary on;
@@ -12,34 +47,96 @@ server {
     gzip_comp_level 5;
     gzip_types application/json application/javascript text/css text/plain image/svg+xml;
 
-    location / {
-        try_files $uri $uri/ /index.html;
+    location = /index.html {
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        expires -1;
+        try_files $uri =404;
+    }
+
+    location = /sw.js {
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        expires -1;
+        try_files $uri =404;
+    }
+
+    location = /registerSW.js {
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        expires -1;
+        try_files $uri =404;
+    }
+
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        expires -1;
+        try_files $uri =404;
     }
 
     location /assets/ {
         try_files $uri =404;
         expires 1y;
-        add_header Cache-Control "public, immutable";
     }
 
-    # Sesuaikan path ini dengan volume uploads persisten backend.
-    location /uploads/ {
-        alias /opt/kms/backend/uploads/;
+    # Ubuntu 22.04/Nginx 1.18 dapat belum mengenali ekstensi ES module
+    # `.mjs`. PDF.js memakai modul ini untuk worker pembaca PDF, sehingga
+    # MIME harus eksplisit agar tidak ditolak oleh `nosniff`.
+    location ~* \.mjs$ {
+        default_type application/javascript;
         try_files $uri =404;
         expires 1y;
-        add_header Cache-Control "public, immutable";
-        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # File fisik hanya boleh dilayani setelah backend memvalidasi referensi aset,
+    # status publik Unit Kerja, atau hak baca pengguna backoffice.
+    location ^~ /_kms_uploads/ {
+        internal;
+        alias /var/lib/kms/uploads/;
+        autoindex off;
+        disable_symlinks if_not_owner from=/var/lib/kms/uploads;
+        limit_except GET HEAD { deny all; }
+    }
+
+    # URL penyimpanan lama tidak boleh diakses langsung dari browser.
+    location ^~ /uploads/ {
+        return 404;
+    }
+
+    location = /api/health/live {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:3000;
+    }
+
+    location = /api/health/ready {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:3000;
     }
 
     location /api/ {
+        limit_req zone=kms_api burst=40 nodelay;
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_hide_header X-Powered-By;
         proxy_connect_timeout 5s;
         proxy_read_timeout 120s;
         proxy_send_timeout 120s;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ (^|/)\. {
+        deny all;
+    }
+
+    location ~* \.(?:env|sql|dump|bak|log|key|pem|crt|tar|gz|zip)$ {
+        deny all;
     }
 }

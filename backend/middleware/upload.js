@@ -1,26 +1,37 @@
 const multer = require("multer");
+const crypto = require("crypto");
 const path = require("path");
+const { uploadsDirectory } = require("../config/storage");
+const { uploads } = require("../config/env");
 
-const uploadsDirectory = path.join(__dirname, "../uploads");
 const extensionOf = (file) => path.extname(file.originalname || "").toLowerCase();
 const imageExtensions = { "image/jpeg": [".jpg", ".jpeg"], "image/png": [".png"], "image/webp": [".webp"] };
 const mediaExtensions = { "application/pdf": [".pdf"], "video/mp4": [".mp4"], "video/webm": [".webm"], "video/ogg": [".ogg"] };
+const canonicalExtension = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "application/pdf": ".pdf",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/ogg": ".ogg",
+};
+
+const generatedFileName = (prefix, file) => `${prefix}-${crypto.randomUUID()}${canonicalExtension[file.mimetype] || ""}`;
 
 const assetStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDirectory),
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
+  filename: (req, file, cb) => cb(null, generatedFileName(file.fieldname, file)),
 });
 
 const avatarStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDirectory),
-  filename: (req, file, cb) => {
-    const extensions = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `avatar-${uniqueSuffix}${extensions[file.mimetype] || ""}`);
-  },
+  filename: (req, file, cb) => cb(null, generatedFileName("avatar", file)),
+});
+
+const announcementStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDirectory),
+  filename: (req, file, cb) => cb(null, generatedFileName("announcement", file)),
 });
 
 const assetFileFilter = (req, file, cb) => {
@@ -44,16 +55,28 @@ const avatarFileFilter = (req, file, cb) => {
   return cb(new Error("Avatar harus berupa JPG, PNG, atau WebP."));
 };
 
+const announcementFileFilter = (req, file, cb) => {
+  if (file.fieldname !== "image") return cb(new Error("Field unggahan tidak dikenali."));
+  if (imageExtensions[file.mimetype]?.includes(extensionOf(file))) return cb(null, true);
+  return cb(new Error("Gambar pengumuman harus berupa JPG, PNG, atau WebP."));
+};
+
 const assetUpload = multer({
   storage: assetStorage,
   fileFilter: assetFileFilter,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: uploads.assetMaxBytes, files: 2, fields: 20, parts: 22 },
 });
 
 const avatarUpload = multer({
   storage: avatarStorage,
   fileFilter: avatarFileFilter,
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: uploads.avatarMaxBytes, files: 1, fields: 2, parts: 3 },
 });
 
-module.exports = { assetUpload, avatarUpload };
+const announcementUpload = multer({
+  storage: announcementStorage,
+  fileFilter: announcementFileFilter,
+  limits: { fileSize: uploads.avatarMaxBytes, files: 1, fields: 10, parts: 11 },
+});
+
+module.exports = { announcementUpload, assetUpload, avatarUpload };

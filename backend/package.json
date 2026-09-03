@@ -10,7 +10,8 @@
     "seed": "node database/seed.js",
     "reindex-search": "node scripts/reindexSearch.js",
     "uploads:audit": "node scripts/auditUploads.js",
-    "uploads:clean": "node scripts/auditUploads.js --delete"
+    "uploads:clean": "node scripts/auditUploads.js --delete",
+    "assets:purge-expired": "node scripts/purgeExpiredAssets.js"
   },
   "author": "",
   "license": "ISC",
@@ -22,7 +23,6 @@
     "express-rate-limit": "^8.6.2",
     "file-type": "^22.0.1",
     "helmet": "^8.3.0",
-    "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "pdf-parse": "^2.4.5",

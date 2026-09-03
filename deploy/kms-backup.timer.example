@@ -1,0 +1,11 @@
+[Unit]
+Description=Jadwal backup harian KMS Kemenhub
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Jakarta
+RandomizedDelaySec=30m
+Persistent=true
+Unit=kms-backup.service
+
+[Install]
+WantedBy=timers.target

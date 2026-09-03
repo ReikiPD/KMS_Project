@@ -9,6 +9,7 @@ const getFileTypeFromFile = async () => {
 const allowedByField = {
   thumbnail: new Set(["image/jpeg", "image/png", "image/webp"]),
   avatar: new Set(["image/jpeg", "image/png", "image/webp"]),
+  image: new Set(["image/jpeg", "image/png", "image/webp"]),
   file: new Set(["application/pdf", "video/mp4", "video/webm", "video/ogg", "application/ogg"]),
 };
 

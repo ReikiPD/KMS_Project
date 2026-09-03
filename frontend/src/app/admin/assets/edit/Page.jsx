@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, FileText, Home, Image as ImageIcon, Save, Undo2 } from "lucide-react";
 import {
   Alert,
   Breadcrumb,
   Button,
   SelectDropdown,
-  SingleFileUpload,
   Skeleton,
   Spinner,
   Stepper,
   TextField,
+  Toggle,
   useToast,
 } from "@idds/react";
 import {
@@ -21,22 +21,29 @@ import {
   UploadProgressPanel,
 } from "../../../../components/AssetFormStatus";
 import VideoFileInput from "../../../../components/VideoFileInput";
+import SafeFileUpload from "../../../../components/SafeFileUpload";
 import VideoMetadataFields from "../../../../components/VideoMetadataFields";
 import useDraftAutosave from "../../../../hooks/useDraftAutosave";
 import useUnsavedChanges from "../../../../hooks/useUnsavedChanges";
-import { apiFetch, apiUpload, currentUser, inputValue, uploadUrl } from "../../../../lib/api";
+import { apiFetch, apiUpload, inputValue, uploadUrl } from "../../../../lib/api";
+import { useAuth } from "../../../../contexts/AuthContext";
 import { ASSET_FORM_STEPS, ASSET_STATUS_OPTIONS, ASSET_TYPE_OPTIONS, assetToFormData, buildAssetFormPayload, createAssetFormData, toSelectOptions } from "../../../../lib/assetForm";
 import { getAssetQuality } from "../../../../lib/assetQuality";
 import { firstInvalidAssetFormStep, validateAssetFormStep } from "../../../../lib/assetFormValidation";
 import useAdminView from "../../../../hooks/useAdminView";
+import { adminAssetEditPath } from "../../../../lib/routes";
+import { hasPermission } from "../../../../lib/permissions";
 
 export default function EditAssetPage() {
+  const { user: authenticatedUser } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const user = currentUser() || {};
+  const user = authenticatedUser || {};
   const isAdmin = user.role === "admin";
-  const { isActingAsEmployee, staffMember, withEmployeeContext } = useAdminView();
+  const { accessUser, employeeId, isEmployeeContext, staffMember, withEmployeeContext } = useAdminView();
+  const permissionUser = accessUser || authenticatedUser;
+  const ownerAccount = isEmployeeContext ? staffMember : authenticatedUser;
+  const canViewManagedWorkUnits = hasPermission(permissionUser, "work_units", "view");
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
@@ -96,14 +103,31 @@ export default function EditAssetPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const assetParams = new URLSearchParams();
+        if (isEmployeeContext && employeeId) assetParams.set("authorId", employeeId);
+        const assetQuery = assetParams.toString();
         const [assetResponse, categoryResponse, workUnitResponse, staffResponse] = await Promise.all([
-          apiFetch(`/api/assets/admin/${id}${searchParams.get("authorId") ? `?authorId=${searchParams.get("authorId")}` : ""}`, { auth: true }),
+          apiFetch(`/api/assets/admin/${id}${assetQuery ? `?${assetQuery}` : ""}`, { auth: true }),
           apiFetch("/api/assets/categories"),
-          apiFetch("/api/assets/work-units"),
-          isAdmin ? apiFetch("/api/users/staff", { auth: true }) : Promise.resolve(null),
+          apiFetch(canViewManagedWorkUnits ? "/api/assets/work-units/backoffice" : "/api/assets/work-units", { auth: canViewManagedWorkUnits }),
+          isAdmin && !isEmployeeContext ? apiFetch("/api/users/staff", { auth: true, context: false }) : Promise.resolve(null),
         ]);
         if (categoryResponse.ok) setCategories(await categoryResponse.json());
-        if (workUnitResponse.ok) setWorkUnits(await workUnitResponse.json());
+        if (workUnitResponse.ok) {
+          const units = await workUnitResponse.json();
+          const ownerWorkUnitId = ownerAccount?.work_unit_id;
+          if (ownerWorkUnitId && !units.some((unit) => String(unit.id) === String(ownerWorkUnitId))) {
+            units.push({
+              id: ownerWorkUnitId,
+              name: ownerAccount.work_unit_name || ownerAccount.department || "Unit Kerja akun",
+              alias: ownerAccount.work_unit_alias || null,
+              echelon_level: ownerAccount.work_unit_echelon_level || null,
+            });
+          }
+          setWorkUnits(units);
+        } else {
+          setError("Daftar Unit Kerja belum dapat dimuat. Muat ulang halaman lalu coba kembali.");
+        }
         if (staffResponse?.ok) { const staffData = await staffResponse.json(); setStaff(staffData.data || staffData); }
         if (!assetResponse.ok) throw new Error("Aset tidak ditemukan");
 
@@ -113,6 +137,11 @@ export default function EditAssetPage() {
         setInitialData(formattedData);
         setExistingThumbnail(asset.thumbnail_url);
         setExistingFile(asset.file_url);
+        const canonicalPath = adminAssetEditPath(asset);
+        const canonicalReference = decodeURIComponent(canonicalPath.split("/").pop() || "");
+        if (canonicalReference && canonicalReference !== id) {
+          navigate(withEmployeeContext(canonicalPath), { replace: true });
+        }
       } catch (fetchError) {
         toast({ state: "negative", title: "Error", description: `Gagal memuat data aset: ${fetchError.message}`, duration: 4000 });
         navigate(withEmployeeContext("/admin/assets"));
@@ -121,7 +150,7 @@ export default function EditAssetPage() {
       }
     };
     fetchData();
-  }, [id, navigate, toast, isAdmin, searchParams, withEmployeeContext]);
+  }, [canViewManagedWorkUnits, employeeId, id, isAdmin, isEmployeeContext, navigate, ownerAccount?.department, ownerAccount?.work_unit_alias, ownerAccount?.work_unit_echelon_level, ownerAccount?.work_unit_id, ownerAccount?.work_unit_name, toast, withEmployeeContext]);
 
   const categoryOptions = toSelectOptions(categories);
   const workUnitOptions = toSelectOptions(workUnits);
@@ -224,7 +253,7 @@ export default function EditAssetPage() {
       setSaved(true);
       completed = true;
       setUploadState({ status: "complete", progress: 100 });
-      toast({ state: "positive", title: "Berhasil", description: "Aset pengetahuan berhasil diperbarui.", duration: 3000 });
+      toast({ state: "positive", title: "Berhasil", description: data.message || (formData.is_published === "true" ? "Aset berhasil diajukan untuk verifikasi." : "Draf aset berhasil diperbarui."), duration: 3000 });
       setTimeout(() => navigate(withEmployeeContext("/admin/assets")), 1500);
     } catch (submitError) {
       resumeAutosave();
@@ -263,7 +292,7 @@ export default function EditAssetPage() {
         <Button hierarchy="tertiary" size="sm" onClick={() => unsavedChanges.requestLeave(() => navigate(-1))} aria-label="Kembali"><ArrowLeft size={20} /></Button>
         <div>
           <h1 className="text-2xl font-bold text-content-primary">Edit Aset Pengetahuan</h1>
-          <p className="mt-1 text-sm text-content-secondary">{isActingAsEmployee ? `Memperbarui aset atas nama ${staffMember?.full_name || "Pegawai terpilih"}.` : "Perbarui aset dengan langkah yang lebih terarah."}</p>
+          <p className="mt-1 text-sm text-content-secondary">{isEmployeeContext ? `Memperbarui aset atas nama ${staffMember?.full_name || "akun terpilih"}.` : "Perbarui aset dengan langkah yang lebih terarah."}</p>
         </div>
       </div>
       {error && <div className="mb-6"><Alert variant="critical" title="Lengkapi formulir" message={error} /></div>}
@@ -288,7 +317,7 @@ export default function EditAssetPage() {
                 <div className="md:col-span-2 rounded-lg border border-outline-secondary bg-page-secondary px-4 py-3">
                   <p className="text-sm font-semibold text-content-primary">Pegawai kontributor</p>
                   <p className="mt-1 text-sm text-content-secondary">
-                    {isActingAsEmployee ? (staffMember?.full_name || "Pegawai terpilih") : contributor ? `${contributor.full_name}${contributor.department ? ` — ${contributor.department}` : ""}` : "Pegawai tidak aktif"}
+                    {isEmployeeContext ? (staffMember?.full_name || "Akun terpilih") : contributor ? `${contributor.full_name}${contributor.department ? ` — ${contributor.department}` : ""}` : "Pegawai tidak aktif"}
                   </p>
                   <p className="mt-1 text-xs text-content-tertiary">Kontributor tidak diubah saat memperbarui aset.</p>
                 </div>
@@ -315,12 +344,16 @@ export default function EditAssetPage() {
               <div className="w-full">
                 <label className="mb-2 block text-sm font-semibold text-content-primary">Gambar Thumbnail Saat Ini</label>
                 {existingThumbnail ? <FilePreview icon={<ImageIcon size={18} />} fileName={existingThumbnail} /> : <p className="mb-4 text-sm italic text-content-secondary">Belum ada gambar thumbnail yang diunggah.</p>}
-                <SingleFileUpload title="Ganti gambar thumbnail" description="JPG, PNG, atau WebP · maksimal 2 MB" accept="image/jpeg,image/png,image/webp" allowedExtensions={["jpg", "jpeg", "png", "webp"]} maxSize={2 * 1024 * 1024} onChange={handleThumbnailChange} onRemove={() => { setThumbnailFiles([]); clearFormFeedback(); }} />
+                <SafeFileUpload title="Ganti gambar thumbnail" description="JPG, PNG, atau WebP · maksimal 2 MB" accept="image/jpeg,image/png,image/webp" allowedExtensions={["jpg", "jpeg", "png", "webp"]} maxSize={2 * 1024 * 1024} file={thumbnailFiles[0]} kind="image" onChange={handleThumbnailChange} onRemove={() => { setThumbnailFiles([]); clearFormFeedback(); }} />
               </div>
               <div className="w-full">
                 <label className="mb-2 block text-sm font-semibold text-content-primary">File Utama Saat Ini</label>
                 {existingFile ? <FilePreview icon={<FileText size={18} />} fileName={existingFile} /> : <p className="mb-4 text-sm italic text-content-secondary">Belum ada file dokumen/video yang diunggah.</p>}
-                {formData.asset_type === "video" ? <VideoFileInput label="Ganti Video Utama (opsional)" file={documentFiles[0]} onChange={handleVideoChange} onDurationDetected={handleVideoDurationDetected} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} /> : <SingleFileUpload title="Ganti dokumen utama" description="PDF · maksimal 20 MB" accept="application/pdf" allowedExtensions={["pdf"]} maxSize={20 * 1024 * 1024} onChange={handleDocumentChange} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} />}
+                {formData.asset_type === "video" ? <VideoFileInput label="Ganti Video Utama (opsional)" file={documentFiles[0]} onChange={handleVideoChange} onDurationDetected={handleVideoDurationDetected} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} /> : <SafeFileUpload title="Ganti dokumen utama" description="PDF · maksimal 20 MB" accept="application/pdf" allowedExtensions={["pdf"]} maxSize={20 * 1024 * 1024} file={documentFiles[0]} onChange={handleDocumentChange} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} />}
+              </div>
+              <div className="flex items-center justify-between gap-5 rounded-xl border border-outline-secondary bg-page-secondary p-4">
+                <div><p className="text-sm font-semibold text-content-primary">Izinkan file diunduh</p><p className="mt-1 text-xs leading-5 text-content-secondary">Jika dinonaktifkan, materi tetap dapat dilihat di KMS tetapi pengguna tidak dapat mengunduh file.</p></div>
+                <Toggle checked={formData.allow_download !== false} onChange={(checked) => updateFormData({ ...formData, allow_download: checked })} aria-label="Izinkan pengguna mengunduh file aset" />
               </div>
               {formData.asset_type === "video" && <VideoMetadataFields value={formData} onChange={updateFormData} />}
             </section>
@@ -349,7 +382,7 @@ export default function EditAssetPage() {
               {currentStep < ASSET_FORM_STEPS.length - 1 ? (
                 <Button type="button" hierarchy="primary" onClick={goToNextStep} disabled={loading}><span className="flex items-center gap-2">Lanjutkan <ArrowRight size={18} /></span></Button>
               ) : (
-                <><Button type="button" hierarchy="tertiary" onClick={handleUndoChanges} disabled={loading}><span className="flex items-center gap-2"><Undo2 size={16} /> Batalkan perubahan</span></Button><Button type="submit" hierarchy="primary" disabled={loading || !formData.title}>{loading ? <span className="flex items-center gap-2"><Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly />Menyimpan...</span> : <span className="flex items-center gap-2"><Save size={18} /> {formData.is_published === "true" ? "Simpan & Publikasikan" : "Simpan Draf"}</span>}</Button></>
+                <><Button type="button" hierarchy="tertiary" onClick={handleUndoChanges} disabled={loading}><span className="flex items-center gap-2"><Undo2 size={16} /> Batalkan perubahan</span></Button><Button type="submit" hierarchy="primary" disabled={loading || !formData.title}>{loading ? <span className="flex items-center gap-2"><Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly />Menyimpan...</span> : <span className="flex items-center gap-2"><Save size={18} /> {formData.is_published === "true" ? "Simpan & Ajukan" : "Simpan Draf"}</span>}</Button></>
               )}
             </div>
           </div>

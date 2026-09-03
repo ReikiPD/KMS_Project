@@ -3,17 +3,63 @@ const { createNotification } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
 
 const MAX_COMMENT_LENGTH = 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const getId = (value) => {
-  const parsed = Number.parseInt(value, 10);
+  const normalized = String(value || "").trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number.parseInt(normalized, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
-const getPublicAsset = async (assetId) => {
+const getPublicAsset = async (assetReference) => {
+  const normalized = String(assetReference || "").trim();
+  if (!normalized) return null;
+  const [filter, value] = UUID_PATTERN.test(normalized)
+    ? ["a.public_id = $1::uuid", normalized]
+    : /^\d+$/.test(normalized)
+      ? ["a.id = $1", Number.parseInt(normalized, 10)]
+      : ["a.slug = $1", normalized];
   const { rows } = await pool.query(
-    `SELECT id, author_id FROM knowledge_assets
-     WHERE id = $1 AND is_published = TRUE AND deleted_at IS NULL`,
-    [assetId],
+    `SELECT a.id, a.author_id
+     FROM knowledge_assets a
+     LEFT JOIN work_units w ON w.id = a.work_unit_id
+     WHERE ${filter}
+       AND a.is_published = TRUE
+       AND a.deleted_at IS NULL
+       AND (a.work_unit_id IS NULL OR (
+         w.id IS NOT NULL AND NOT EXISTS (
+           WITH RECURSIVE ancestors AS (
+             SELECT id, parent_id, is_public, deleted_at FROM work_units WHERE id = w.id
+             UNION ALL
+             SELECT parent.id, parent.parent_id, parent.is_public, parent.deleted_at
+             FROM work_units parent INNER JOIN ancestors child ON child.parent_id = parent.id
+           )
+           SELECT 1 FROM ancestors WHERE deleted_at IS NOT NULL OR is_public = FALSE
+         )
+       ))`,
+    [value],
+  );
+  return rows[0] || null;
+};
+
+const getManagedAsset = async (assetReference, user, accessContext = null) => {
+  const normalized = String(assetReference || "").trim();
+  if (!normalized) return null;
+  const values = [];
+  const filter = UUID_PATTERN.test(normalized)
+    ? `public_id = $${values.push(normalized)}::uuid`
+    : /^\d+$/.test(normalized)
+      ? `id = $${values.push(Number.parseInt(normalized, 10))}`
+      : `slug = $${values.push(normalized)}`;
+  const scopedAuthorId = accessContext?.id || (user.role === "admin" ? null : user.id);
+  const ownerFilter = scopedAuthorId
+    ? ` AND author_id = $${values.push(scopedAuthorId)}`
+    : "";
+  const { rows } = await pool.query(
+    `SELECT id FROM knowledge_assets
+     WHERE ${filter} AND deleted_at IS NULL${ownerFilter}`,
+    values,
   );
   return rows[0] || null;
 };
@@ -87,13 +133,10 @@ const commentSelect = `
 `;
 
 const getAssetComments = async (req, res) => {
-  const assetId = getId(req.params.id);
-  if (!assetId) return res.status(400).json({ error: "ID aset tidak valid" });
-
   try {
-    if (!(await getPublicAsset(assetId))) {
-      return res.status(404).json({ error: "Aset tidak ditemukan" });
-    }
+    const asset = await getPublicAsset(req.params.id);
+    if (!asset) return res.status(404).json({ error: "Aset tidak ditemukan" });
+    const assetId = asset.id;
 
     const { rows } = await pool.query(
       `${commentSelect}
@@ -117,11 +160,9 @@ const getAssetComments = async (req, res) => {
 };
 
 const createComment = async (req, res) => {
-  const assetId = getId(req.params.id);
   const parentId = req.body.parentId ? getId(req.body.parentId) : null;
   const content = typeof req.body.content === "string" ? req.body.content.trim() : "";
 
-  if (!assetId) return res.status(400).json({ error: "ID aset tidak valid" });
   if (!content) return res.status(400).json({ error: "Komentar tidak boleh kosong" });
   if (content.length > MAX_COMMENT_LENGTH) {
     return res.status(400).json({ error: `Komentar maksimal ${MAX_COMMENT_LENGTH} karakter` });
@@ -132,11 +173,12 @@ const createComment = async (req, res) => {
 
   try {
     const [asset, user] = await Promise.all([
-      getPublicAsset(assetId),
+      getPublicAsset(req.params.id),
       ensureActiveUser(req.user.id),
     ]);
     if (!asset) return res.status(404).json({ error: "Aset tidak ditemukan" });
     if (!user) return res.status(401).json({ error: "Sesi pengguna tidak valid" });
+    const assetId = asset.id;
 
     let parentAuthorId = null;
     if (parentId) {
@@ -191,20 +233,19 @@ const createComment = async (req, res) => {
 };
 
 const updateComment = async (req, res) => {
-  const assetId = getId(req.params.id);
   const commentId = getId(req.params.commentId);
   const content = typeof req.body.content === "string" ? req.body.content.trim() : "";
 
-  if (!assetId || !commentId) return res.status(400).json({ error: "ID komentar tidak valid" });
+  if (!commentId) return res.status(400).json({ error: "ID komentar tidak valid" });
   if (!content) return res.status(400).json({ error: "Komentar tidak boleh kosong" });
   if (content.length > MAX_COMMENT_LENGTH) {
     return res.status(400).json({ error: `Komentar maksimal ${MAX_COMMENT_LENGTH} karakter` });
   }
 
   try {
-    if (!(await getPublicAsset(assetId))) {
-      return res.status(404).json({ error: "Aset tidak ditemukan" });
-    }
+    const asset = await getPublicAsset(req.params.id);
+    if (!asset) return res.status(404).json({ error: "Aset tidak ditemukan" });
+    const assetId = asset.id;
     const { rows: comments } = await pool.query(
       "SELECT id, user_id FROM comments WHERE id = $1 AND asset_id = $2 AND deleted_at IS NULL",
       [commentId, assetId],
@@ -234,14 +275,13 @@ const updateComment = async (req, res) => {
 };
 
 const deleteComment = async (req, res) => {
-  const assetId = getId(req.params.id);
   const commentId = getId(req.params.commentId);
-  if (!assetId || !commentId) return res.status(400).json({ error: "ID komentar tidak valid" });
+  if (!commentId) return res.status(400).json({ error: "ID komentar tidak valid" });
 
   try {
-    if (!(await getPublicAsset(assetId))) {
-      return res.status(404).json({ error: "Aset tidak ditemukan" });
-    }
+    const asset = await getPublicAsset(req.params.id);
+    if (!asset) return res.status(404).json({ error: "Aset tidak ditemukan" });
+    const assetId = asset.id;
     const { rows: comments } = await pool.query(
       "SELECT id, user_id FROM comments WHERE id = $1 AND asset_id = $2 AND deleted_at IS NULL",
       [commentId, assetId],
@@ -310,16 +350,13 @@ const getOwnedAssetComments = async (req, res) => {
 };
 
 const moderateOwnedAssetComment = async (req, res) => {
-  const assetId = getId(req.params.id);
   const commentId = getId(req.params.commentId);
-  if (!assetId || !commentId) return res.status(400).json({ error: "ID aset atau komentar tidak valid" });
+  if (!commentId) return res.status(400).json({ error: "Referensi komentar tidak valid" });
 
   try {
-    const ownershipResult = await pool.query(
-      `SELECT id FROM knowledge_assets WHERE id = $1 AND deleted_at IS NULL${req.user.role === "admin" ? "" : " AND author_id = $2"}`,
-      req.user.role === "admin" ? [assetId] : [assetId, req.user.id],
-    );
-    if (!ownershipResult.rows[0]) return res.status(403).json({ error: "Anda hanya dapat memoderasi komentar pada aset sendiri" });
+    const asset = await getManagedAsset(req.params.id, req.user, req.accessContext);
+    if (!asset) return res.status(403).json({ error: "Anda hanya dapat memoderasi komentar pada aset sendiri" });
+    const assetId = asset.id;
     const result = await pool.query(
       `UPDATE comments SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND asset_id = $2 AND deleted_at IS NULL

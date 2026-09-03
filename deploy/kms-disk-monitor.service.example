@@ -1,0 +1,18 @@
+[Unit]
+Description=Monitor kapasitas penyimpanan KMS
+RequiresMountsFor=/var/lib/kms/uploads
+
+[Service]
+Type=oneshot
+User=kms
+Group=kms-app
+ExecStart=/usr/local/sbin/kms-disk-monitor
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+ReadOnlyPaths=/var/lib/kms/uploads

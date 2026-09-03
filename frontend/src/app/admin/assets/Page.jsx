@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Table,
   Button,
@@ -21,14 +21,22 @@ import {
   Columns3,
   Rows3,
   Undo2,
+  Star,
+  MessageSquareText,
+  UserRoundCheck,
+  Clock3,
 } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
 import AssetQuickPreview from "../../../components/AssetQuickPreview";
 import EmptyState from "../../../components/EmptyState";
 import MultipleSearchSelect from "../../../components/MultipleSearchSelect";
-import { apiFetch, currentUser } from "../../../lib/api";
+import { apiFetch } from "../../../lib/api";
+import { useAuth } from "../../../contexts/AuthContext";
+import { hasPermission } from "../../../lib/permissions";
 import { searchSelectionsToQuery } from "../../../lib/search";
 import useAdminView from "../../../hooks/useAdminView";
+import { adminAssetEditPath, adminAssetPath, assetRouteReference } from "../../../lib/routes";
+import { publicationStatus } from "../../../lib/publicationStatus";
 
 const COLUMN_OPTIONS = [
   { label: "Aset Pengetahuan", value: "title" },
@@ -38,14 +46,27 @@ const COLUMN_OPTIONS = [
   { label: "Tanggal Dibuat", value: "created_at" },
 ];
 
+const formatReviewDate = (value) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Waktu keputusan tidak tersedia";
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(date);
+};
+
 export default function AssetsPage() {
+  const { user: authenticatedUser } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const user = currentUser() || {};
-  const selectedAuthorId = searchParams.get("authorId") || "";
-  const { isActingAsEmployee, isAdminViewingUser, staffMember, withEmployeeContext } = useAdminView();
+  const { accessUser, employeeId, isActingAsEmployee, isAdminViewingUser, isEmployeeContext, staffMember, withEmployeeContext } = useAdminView();
+  const user = accessUser || authenticatedUser || {};
+  const selectedAuthorId = isEmployeeContext ? employeeId : "";
   const { toast } = useToast();
-  const canWrite = ["pegawai", "admin"].includes(user.role) && !isAdminViewingUser;
+  const canCreate = hasPermission(user, "assets", "post");
+  const canEdit = hasPermission(user, "assets", "edit");
+  const canDelete = hasPermission(user, "assets", "delete");
+  const canWrite = canCreate || canEdit || canDelete;
+  const canManageFeatured = hasPermission(user, "assets", "edit") && authenticatedUser?.role === "admin" && !isEmployeeContext;
   const [data, setData] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -65,17 +86,17 @@ export default function AssetsPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState(null);
   const [previewAsset, setPreviewAsset] = useState(null);
+  const [reviewAsset, setReviewAsset] = useState(null);
   const [undoAsset, setUndoAsset] = useState(null);
   const [undoing, setUndoing] = useState(false);
   const [density, setDensity] = useState("compact");
   const [visibleColumns, setVisibleColumns] = useState(COLUMN_OPTIONS.map((option) => option.value));
+  const [featuredSavingId, setFeaturedSavingId] = useState("");
   const undoTimerRef = useRef(null);
 
   const navigateScoped = useCallback((path) => {
-    const target = new URL(path, window.location.origin);
-    if (selectedAuthorId) target.searchParams.set("authorId", selectedAuthorId);
-    navigate(withEmployeeContext(`${target.pathname}${target.search}`));
-  }, [navigate, selectedAuthorId, withEmployeeContext]);
+    navigate(withEmployeeContext(path));
+  }, [navigate, withEmployeeContext]);
 
   // Mengambil data dari Backend
   const fetchAssets = useCallback(async () => {
@@ -142,10 +163,11 @@ export default function AssetsPage() {
 
   // 2. Fungsi yang dipanggil saat tombol Konfirmasi di Modal diklik
   const confirmDelete = async () => {
-    if (!assetToDelete?.id) return;
+    const assetReference = assetRouteReference(assetToDelete);
+    if (!assetReference) return;
 
     try {
-      const response = await apiFetch(`/api/assets/${assetToDelete.id}`, { method: "DELETE", auth: true });
+      const response = await apiFetch(`/api/assets/${encodeURIComponent(assetReference)}`, { method: "DELETE", auth: true });
 
       if (!response.ok) throw new Error("Gagal menghapus aset");
 
@@ -164,10 +186,11 @@ export default function AssetsPage() {
   };
 
   const undoDelete = async () => {
-    if (!undoAsset?.id || undoing) return;
+    const assetReference = assetRouteReference(undoAsset);
+    if (!assetReference || undoing) return;
     setUndoing(true);
     try {
-      const response = await apiFetch(`/api/assets/${undoAsset.id}/undo-delete`, { method: "PATCH", auth: true });
+      const response = await apiFetch(`/api/assets/${encodeURIComponent(assetReference)}/undo-delete`, { method: "PATCH", auth: true });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Aset belum dapat dipulihkan");
       setUndoAsset(null);
@@ -186,6 +209,30 @@ export default function AssetsPage() {
   }, []);
 
   const processedData = { paginatedData: data, total: totalItems };
+
+  const toggleFeatured = async (asset) => {
+    const reference = assetRouteReference(asset);
+    if (!reference || featuredSavingId) return;
+    setFeaturedSavingId(String(reference));
+    setError("");
+    try {
+      const response = await apiFetch(`/api/assets/admin/${encodeURIComponent(reference)}/featured`, {
+        method: "PATCH",
+        auth: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isFeatured: !asset.is_featured }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Sorotan belum dapat diperbarui");
+      setData((current) => current.map((item) => item.id === asset.id ? { ...item, is_featured: result.asset?.is_featured } : item));
+      toast({ state: "positive", title: asset.is_featured ? "Aset dikeluarkan dari sorotan" : "Aset menjadi sorotan", description: result.message, duration: 3000 });
+    } catch (featuredError) {
+      setError(featuredError.message);
+      toast({ state: "negative", title: "Sorotan belum berubah", description: featuredError.message, duration: 4000 });
+    } finally {
+      setFeaturedSavingId("");
+    }
+  };
 
   const searchOptions = useMemo(() => {
     const option = (group, value, description) => value ? { group, label: value, value, description } : null;
@@ -222,11 +269,9 @@ export default function AssetsPage() {
               <FileText size={20} />
             )}
           </div>
-          <div className="flex min-w-0 flex-col">
-            <Tooltip variant="basic" title={row.title} placement="top" showArrow={true}>
-              <button type="button" onClick={() => navigateScoped(`/admin/assets/${row.id}`)} className="line-clamp-1 text-left font-semibold text-content-primary hover:text-content-guide hover:underline focus:outline-none focus:ring-2 focus:ring-primary-300">
-                {row.title}
-              </button>
+          <div className="flex min-w-0 max-w-[18rem] flex-col">
+            <Tooltip className="block min-w-0 w-full" variant="basic" title={row.title} placement="top" showArrow={true}>
+              <button type="button" onClick={() => navigateScoped(adminAssetPath(row))} className="block w-full truncate text-left font-semibold text-content-primary hover:text-content-guide hover:underline focus:outline-none focus:ring-2 focus:ring-primary-300">{row.title}</button>
             </Tooltip>
             <span className="text-xs text-content-secondary">
               {row.category_name || "Tanpa Kategori"}{row.author_name ? ` · ${row.author_name}` : ""}
@@ -250,15 +295,18 @@ export default function AssetsPage() {
       accessor: "is_published",
       sortable: true,
       render: (row) => (
-        <span
-          className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-            row.is_published
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-amber-100 text-amber-700"
-          }`}
-        >
-          {row.is_published ? "Dipublikasikan" : "Draf"}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <Badge type="soft" variant={publicationStatus(row).variant} size="sm">
+            {publicationStatus(row).label}
+          </Badge>
+          {row.reviewed_at && row.review_note && row.publication_status !== "pending_review" && (
+            <Tooltip variant="basic" title="Lihat keterangan verifikator" placement="top" showArrow={true}>
+              <Button size="sm" hierarchy="tertiary" onClick={() => setReviewAsset(row)} aria-label={`Lihat keterangan verifikator untuk ${row.title}`}>
+                <MessageSquareText size={16} className="text-content-guide" />
+              </Button>
+            </Tooltip>
+          )}
+        </div>
       ),
     },
     {
@@ -286,12 +334,19 @@ export default function AssetsPage() {
       sortable: false,
       render: (row) => (
         <div className="flex items-center gap-2">
-          <Tooltip variant="basic" title="Pratinjau cepat" placement="top" showArrow={true}>
-            <Button size="sm" hierarchy="tertiary" onClick={() => setPreviewAsset(row)} aria-label={`Pratinjau cepat ${row.title}`}>
+          {canManageFeatured && (
+            <Tooltip variant="basic" title={!row.is_published ? "Terbitkan aset sebelum menjadikannya sorotan" : row.is_featured ? "Hapus dari Pengetahuan Sorotan" : "Tambahkan ke Pengetahuan Sorotan"} placement="top" showArrow={true}>
+              <Button size="sm" hierarchy="tertiary" onClick={() => toggleFeatured(row)} disabled={!row.is_published || Boolean(featuredSavingId)} aria-label={row.is_featured ? `Hapus ${row.title} dari sorotan` : `Jadikan ${row.title} sebagai sorotan`}>
+                <Star size={16} className={row.is_featured ? "fill-current text-[#F2B843]" : "text-content-secondary hover:text-[#B77900]"} />
+              </Button>
+            </Tooltip>
+          )}
+          <Tooltip variant="basic" title="Preview" placement="top" showArrow={true}>
+            <Button size="sm" hierarchy="tertiary" onClick={() => setPreviewAsset(row)} aria-label={`Preview ${row.title}`}>
               <Eye size={16} className="text-content-secondary hover:text-content-guide" />
             </Button>
           </Tooltip>
-          {canWrite && <>
+          {canEdit && row.publication_status !== "pending_review" && <>
           <Tooltip
             variant="basic"
             title="Edit Aset"
@@ -301,13 +356,14 @@ export default function AssetsPage() {
             <Button
               size="sm"
               hierarchy="tertiary"
-              onClick={() => navigateScoped(`/admin/assets/edit/${row.id}`)}
+              onClick={() => navigateScoped(adminAssetEditPath(row))}
             >
               <Edit size={16} className="text-content-secondary hover:text-content-guide" />
             </Button>
           </Tooltip>
 
-          {/* Mengubah onClick menjadi handleDeleteClick(row.id) */}
+          </>}
+          {canDelete && <>
           <Tooltip
             variant="basic"
             title="Hapus Aset"
@@ -334,7 +390,7 @@ export default function AssetsPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
-      <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode pantau akun" : "Manajemen Pengetahuan"} title="Katalog Aset Pengetahuan" description={isActingAsEmployee ? `Anda mengelola aset atas nama ${staffMember?.full_name || "Pegawai terpilih"}.` : isAdminViewingUser ? `Admin sedang melihat aset ${staffMember?.full_name || "akun terpilih"} dalam mode baca.` : selectedAuthorId ? "Aset pegawai yang dipilih. Pimpinan hanya memiliki akses baca." : user.role === "admin" ? "Kelola aset seluruh Pegawai melalui Manajemen Pegawai atau mode kerja Pegawai." : canWrite ? "Kelola dokumen dan media yang Anda buat, dari draf hingga publikasi." : "Lihat aset pengetahuan seluruh pegawai dalam mode baca."} breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Aset Pengetahuan" }]} actions={canWrite ? <Button hierarchy="primary" onClick={() => navigateScoped("/admin/assets/create")} prefixIcon={<Plus size={18} />}>Tambah aset</Button> : null} />
+      <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode akses akun" : "Manajemen Pengetahuan"} title="Katalog Aset Pengetahuan" description={isEmployeeContext ? `Aset ${staffMember?.full_name || "akun terpilih"}; aksi mengikuti hak akses role akun tersebut.` : user.role === "admin" ? "Kelola aset seluruh Pegawai melalui Manajemen Pegawai atau mode kerja Pegawai." : canWrite ? "Kelola dokumen dan media yang Anda buat, dari draf hingga publikasi." : "Lihat aset pengetahuan sesuai hak akses role Anda."} breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Aset Pengetahuan" }]} actions={canCreate ? <Button hierarchy="primary" onClick={() => navigateScoped("/admin/assets/create")} prefixIcon={<Plus size={18} />}>Tambah aset</Button> : null} />
 
       {error && (
         <div className="mb-4">
@@ -342,7 +398,7 @@ export default function AssetsPage() {
         </div>
       )}
 
-      <Card className="p-6">
+      <Card className="kms-admin-surface p-4 md:p-6">
         <div className="mb-6 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
           <div className="grid max-w-3xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <MultipleSearchSelect
@@ -360,14 +416,14 @@ export default function AssetsPage() {
             Cari
           </Button>
           </div>
-          <div className="flex flex-wrap items-end justify-end gap-2">
+          <div className="kms-assets-table-controls flex flex-wrap items-end justify-end gap-2">
             <div className="min-w-[12rem]"><SelectDropdown label="Kolom tabel" options={COLUMN_OPTIONS} selected={visibleColumns} onSelect={(values) => setVisibleColumns(values.length ? values : ["title"])} multiple indicator="check" width="100%" /></div>
             <Tooltip variant="basic" title={density === "compact" ? "Gunakan baris nyaman" : "Padatkan baris tabel"} placement="top" showArrow={true}><Button hierarchy="secondary" onClick={() => setDensity((value) => value === "compact" ? "comfortable" : "compact")} prefixIcon={density === "compact" ? <Rows3 size={16} /> : <Columns3 size={16} />}>{density === "compact" ? "Nyaman" : "Ringkas"}</Button></Tooltip>
           </div>
         </div>
 
-        <div className={`kms-admin-table-shell kms-admin-table-shell--page kms-admin-table-shell--${density}`}>
-        {!isLoading && processedData.total === 0 ? <EmptyState title="Belum ada aset yang sesuai" description="Ubah pencarian atau buat aset pengetahuan baru." actionLabel={canWrite ? "Tambah aset" : undefined} onAction={canWrite ? () => navigateScoped("/admin/assets/create") : undefined} /> : <Table
+        <div className={`kms-admin-table-shell kms-admin-table-shell--page kms-admin-table-shell--${density} kms-assets-table`}>
+        {!isLoading && processedData.total === 0 ? <EmptyState title="Belum ada aset yang sesuai" description="Ubah pencarian atau buat aset pengetahuan baru." actionLabel={canCreate ? "Tambah aset" : undefined} onAction={canCreate ? () => navigateScoped("/admin/assets/create") : undefined} /> : <Table
           columns={displayColumns}
           data={processedData.paginatedData}
           total={processedData.total}
@@ -386,7 +442,30 @@ export default function AssetsPage() {
 
       {undoAsset && <aside className="kms-undo-toast" role="status"><div><strong>Aset dipindahkan ke pemulihan</strong><p>{undoAsset.title}</p></div><Button hierarchy="secondary" size="sm" prefixIcon={<Undo2 size={15} />} onClick={undoDelete} disabled={undoing}>{undoing ? "Memulihkan…" : "Batalkan"}</Button></aside>}
 
-      <AssetQuickPreview asset={previewAsset} open={Boolean(previewAsset)} onClose={() => setPreviewAsset(null)} detailPath={previewAsset ? withEmployeeContext(`/admin/assets/${previewAsset.id}`) : undefined} />
+      <AssetQuickPreview asset={previewAsset} open={Boolean(previewAsset)} onClose={() => setPreviewAsset(null)} detailPath={previewAsset ? withEmployeeContext(adminAssetPath(previewAsset)) : undefined} />
+
+      <Modal open={Boolean(reviewAsset)} onClose={() => setReviewAsset(null)} title="Keterangan verifikator" size="md">
+        {reviewAsset && <div className="space-y-5">
+          <div className="rounded-xl border border-border-subtle bg-page-secondary p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-content-guide">Aset pengetahuan</p>
+                <h3 className="mt-1 break-words text-lg font-bold text-content-primary">{reviewAsset.title}</h3>
+              </div>
+              <Badge type="soft" variant={publicationStatus(reviewAsset).variant} size="sm">{publicationStatus(reviewAsset).label}</Badge>
+            </div>
+            <div className="mt-4 grid gap-2 text-sm text-content-secondary sm:grid-cols-2">
+              <span className="inline-flex items-center gap-2"><UserRoundCheck size={16} className="text-content-guide" />{reviewAsset.reviewer_name || "Verifikator KMS"}</span>
+              <span className="inline-flex items-center gap-2"><Clock3 size={16} className="text-content-guide" />{formatReviewDate(reviewAsset.reviewed_at)}</span>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-content-primary">Catatan keputusan</p>
+            <p className="mt-2 whitespace-pre-wrap rounded-xl border border-border-subtle bg-page-primary p-4 text-sm leading-6 text-content-secondary">{reviewAsset.review_note}</p>
+          </div>
+          <div className="flex justify-end"><Button hierarchy="secondary" onClick={() => setReviewAsset(null)}>Tutup</Button></div>
+        </div>}
+      </Modal>
 
       {/* MODAL KONFIRMASI HAPUS */}
       <Modal
@@ -399,7 +478,7 @@ export default function AssetsPage() {
           <p className="text-content-secondary">
             Aset <strong>{assetToDelete?.title}</strong> akan diarsipkan dan tidak lagi tampil pada katalog publik. Anda dapat membatalkannya selama beberapa detik setelah penghapusan.
           </p>
-          <div className="flex gap-3 mt-8 justify-end">
+          <div className="kms-modal-actions mt-8 flex justify-end gap-3">
             <Button
               hierarchy="secondary"
               onClick={() => setIsDeleteModalOpen(false)}

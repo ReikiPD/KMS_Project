@@ -7,6 +7,10 @@ import MultipleSearchSelect from "../../../../components/MultipleSearchSelect";
 import WorkUnitLabel from "../../../../components/WorkUnitLabel";
 import { apiFetch } from "../../../../lib/api";
 import { queryToSearchSelections, searchSelectionsToQuery } from "../../../../lib/search";
+import { adminAssetPath } from "../../../../lib/routes";
+import { useAuth } from "../../../../contexts/AuthContext";
+import useAdminView from "../../../../hooks/useAdminView";
+import { hasPermission } from "../../../../lib/permissions";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const dateFormatter = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -33,6 +37,9 @@ const deletedTimeAgo = (value) => {
 };
 
 export default function AssetRecoveryPage() {
+  const { user: authenticatedUser } = useAuth();
+  const { accessUser } = useAdminView();
+  const user = accessUser || authenticatedUser;
   const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -51,6 +58,8 @@ export default function AssetRecoveryPage() {
   const [pendingAction, setPendingAction] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const canRestore = hasPermission(user, "asset_recovery", "edit");
+  const canDeletePermanently = hasPermission(user, "asset_recovery", "delete");
 
   const updateParams = useCallback((updates) => {
     setSearchParams((current) => {
@@ -123,6 +132,8 @@ export default function AssetRecoveryPage() {
 
   const openAction = (type, actionAssets) => {
     if (!actionAssets.length) return;
+    if (type === "restore" && !canRestore) return;
+    if (type === "delete" && !canDeletePermanently) return;
     setDeleteConfirmation("");
     setPendingAction({ type, assets: actionAssets });
   };
@@ -179,7 +190,7 @@ export default function AssetRecoveryPage() {
       <AdminPageHeader
         eyebrow="Administrasi aset"
         title="Pemulihan Aset"
-        description="Pulihkan aset sebagai draf atau hapus permanen aset yang tidak lagi diperlukan. Fitur ini hanya tersedia untuk Admin."
+        description="Pulihkan aset sebagai draf atau hapus permanen sesuai hak akses role. Aset yang melewati satu bulan sejak dihapus akan dibersihkan otomatis."
         breadcrumbs={[{ label: "Dasbor", href: "/admin/dashboard" }, { label: "Aset Pengetahuan", href: "/admin/assets" }, { label: "Pemulihan Aset" }]}
       />
 
@@ -228,8 +239,8 @@ export default function AssetRecoveryPage() {
               <p className="text-sm font-medium text-content-primary">Pilih semua{selectedAssets.size ? <span className="ml-2 font-normal text-content-secondary">({selectedAssets.size} dipilih)</span> : null}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button hierarchy="secondary" size="sm" prefixIcon={<RotateCcw size={15} />} disabled={!selectedAssets.size} onClick={() => openAction("restore", [...selectedAssets.values()])}>Pulihkan terpilih</Button>
-              <Button hierarchy="secondary" size="sm" prefixIcon={<Trash2 size={15} />} disabled={!selectedAssets.size} onClick={() => openAction("delete", [...selectedAssets.values()])}>Hapus permanen</Button>
+              {canRestore && <Button hierarchy="secondary" size="sm" prefixIcon={<RotateCcw size={15} />} disabled={!selectedAssets.size} onClick={() => openAction("restore", [...selectedAssets.values()])}>Pulihkan terpilih</Button>}
+              {canDeletePermanently && <Button hierarchy="secondary" size="sm" prefixIcon={<Trash2 size={15} />} disabled={!selectedAssets.size} onClick={() => openAction("delete", [...selectedAssets.values()])}>Hapus permanen</Button>}
             </div>
           </div>
         )}
@@ -249,7 +260,7 @@ export default function AssetRecoveryPage() {
                     return (
                       <tr key={asset.id} className={`border-t border-border-subtle align-top transition-colors hover:bg-primary-50/40 ${selectedAssets.has(asset.id) ? "bg-primary-50/60" : ""}`}>
                         <td className="px-5 py-4"><SelectionCheckbox checked={selectedAssets.has(asset.id)} onChange={() => toggleAssetSelection(asset)} label={`Pilih ${asset.title}`} /></td>
-                        <td className="px-3 py-4"><div className="flex items-start gap-3"><span className="rounded-lg bg-primary-100 p-2 text-content-guide"><AssetIcon size={17} /></span><div><button type="button" onClick={() => navigate(`/admin/assets/${asset.id}?recovery=1`)} className="-m-1 line-clamp-2 cursor-pointer rounded-md px-1 py-1 text-left font-semibold text-content-primary transition-colors duration-150 hover:bg-primary-100 hover:text-content-guide hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300">{asset.title}</button><p className="mt-1 text-xs text-content-secondary">{asset.asset_type === "video" ? "Video" : "Dokumen"} · ID #{asset.id}</p></div></div></td>
+                        <td className="px-3 py-4"><div className="flex items-start gap-3"><span className="rounded-lg bg-primary-100 p-2 text-content-guide"><AssetIcon size={17} /></span><div><button type="button" onClick={() => navigate(`${adminAssetPath(asset)}?recovery=1`)} className="-m-1 line-clamp-2 cursor-pointer rounded-md px-1 py-1 text-left font-semibold text-content-primary transition-colors duration-150 hover:bg-primary-100 hover:text-content-guide hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300">{asset.title}</button><p className="mt-1 text-xs text-content-secondary">{asset.asset_type === "video" ? "Video" : "Dokumen"}</p></div></div></td>
                         <td className="px-4 py-4 text-content-secondary">{asset.author_name}</td>
                         <td className="px-4 py-4"><p className="text-content-primary">{asset.category_name || "Tanpa kategori"}</p><div className="mt-1 text-xs text-content-secondary"><WorkUnitLabel name={asset.work_unit_name} fallback="Tanpa Unit Kerja" /></div></td>
                         <td className="px-4 py-4 text-content-secondary">
@@ -260,7 +271,7 @@ export default function AssetRecoveryPage() {
                           </Tooltip>
                         </td>
                         <td className="px-4 py-4"><Badge type="soft" variant={asset.is_published ? "success" : "neutral"}>{asset.is_published ? "Terbit" : "Draf"}</Badge></td>
-                        <td className="px-5 py-4"><div className="flex justify-end gap-2"><Tooltip variant="basic" title="Pulihkan sebagai draf" placement="top" showArrow={true}><Button hierarchy="secondary" size="sm" prefixIcon={<RotateCcw size={15} />} onClick={() => openAction("restore", [asset])}>Pulihkan</Button></Tooltip><Tooltip variant="basic" title="Hapus aset dan file secara permanen" placement="top" showArrow={true}><Button hierarchy="tertiary" size="sm" onClick={() => openAction("delete", [asset])} aria-label={`Hapus permanen ${asset.title}`}><Trash2 size={16} /></Button></Tooltip></div></td>
+                        <td className="px-5 py-4"><div className="flex justify-end gap-2">{canRestore && <Tooltip variant="basic" title="Pulihkan sebagai draf" placement="top" showArrow={true}><Button hierarchy="secondary" size="sm" prefixIcon={<RotateCcw size={15} />} onClick={() => openAction("restore", [asset])}>Pulihkan</Button></Tooltip>}{canDeletePermanently && <Tooltip variant="basic" title="Hapus aset dan file secara permanen" placement="top" showArrow={true}><Button hierarchy="tertiary" size="sm" onClick={() => openAction("delete", [asset])} aria-label={`Hapus permanen ${asset.title}`}><Trash2 size={16} /></Button></Tooltip>}</div></td>
                       </tr>
                     );
                   })}
@@ -330,7 +341,7 @@ export default function AssetRecoveryPage() {
             </div>
           )}
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <div className="kms-modal-actions flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button hierarchy="secondary" onClick={closeAction} disabled={actionLoading}>Batal</Button>
             <Button
               hierarchy="primary"

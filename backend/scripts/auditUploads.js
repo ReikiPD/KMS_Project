@@ -1,9 +1,9 @@
 const fs = require("fs/promises");
 const path = require("path");
 const pool = require("../database/db");
+const { uploadsDirectory } = require("../config/storage");
 
 const shouldDelete = process.argv.includes("--delete");
-const uploadsDirectory = path.resolve(__dirname, "../uploads");
 
 const localFileName = (value) => {
   if (!value || typeof value !== "string" || /^https?:\/\//i.test(value)) return null;
@@ -12,9 +12,10 @@ const localFileName = (value) => {
 };
 
 const getReferencedFiles = async () => {
-  const [assets, users] = await Promise.all([
+  const [assets, users, announcements] = await Promise.all([
     pool.query("SELECT file_url, thumbnail_url FROM knowledge_assets"),
     pool.query("SELECT avatar_url FROM users"),
+    pool.query("SELECT image_url FROM announcements"),
   ]);
 
   const references = new Set();
@@ -23,6 +24,10 @@ const getReferencedFiles = async () => {
   }
   for (const user of users.rows) {
     const name = localFileName(user.avatar_url);
+    if (name) references.add(name);
+  }
+  for (const announcement of announcements.rows) {
+    const name = localFileName(announcement.image_url);
     if (name) references.add(name);
   }
   return references;

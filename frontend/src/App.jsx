@@ -4,16 +4,17 @@ import { Spinner } from "@idds/react";
 import SidebarProvider from "./contexts/SidebarProvider";
 import AdminViewProvider from "./contexts/AdminViewProvider";
 import ThemeProvider from "./contexts/ThemeProvider";
+import AuthProvider from "./contexts/AuthProvider";
 import Navbar from "./components/Navbar";
 import Sidebar from "./components/Sidebar";
 import PublicHeader from "./components/PublicHeader";
 import PublicFooter from "./components/PublicFooter";
 import { OfflineNotice } from "./components/AppRuntime";
-import { RequireAssetWriter, RoleGuard } from "./components/RouteGuards";
+import { PermissionGuard, RoleGuard } from "./components/RouteGuards";
+import StatusPage from "./components/StatusPage";
 
 const Page = lazy(() => import("./app/Page"));
 const LoginPage = lazy(() => import("./app/login/Page"));
-const RegisterPage = lazy(() => import("./app/register/Page"));
 const DashboardPage = lazy(() => import("./app/admin/dashboard/Page"));
 const CreateAssetPage = lazy(() => import("./app/admin/assets/create/Page"));
 const MasterDataPage = lazy(() => import("./app/admin/master-data/Page"));
@@ -21,25 +22,27 @@ const AssetsPage = lazy(() => import("./app/admin/assets/Page"));
 const EditAssetPage = lazy(() => import("./app/admin/assets/edit/Page"));
 const AdminAssetDetailPage = lazy(() => import("./app/admin/assets/detail/Page"));
 const AssetRecoveryPage = lazy(() => import("./app/admin/assets/recovery/Page"));
+const AssetVerificationPage = lazy(() => import("./app/admin/asset-verification/Page"));
 const ActivityPage = lazy(() => import("./app/admin/activity/Page"));
 const ProfilePage = lazy(() => import("./app/admin/profile/Page"));
 const EditProfilePage = lazy(() => import("./app/admin/profile/edit/Page"));
 const DetailPage = lazy(() => import("./app/detail/Page"));
 const StaffPage = lazy(() => import("./app/admin/staff/Page"));
-
-const BACKOFFICE_ROLES = ["pegawai", "pimpinan", "admin"];
-const PROFILE_ROLES = ["pegawai", "pimpinan"];
+const AnnouncementsPage = lazy(() => import("./app/admin/announcements/Page"));
+const RolePermissionsPage = lazy(() => import("./app/admin/role-permissions/Page"));
+const WorkUnitAnalyticsPage = lazy(() => import("./app/admin/work-units/analytics/Page"));
 
 function AdminLayout() {
+  const location = useLocation();
   return (
-    <RoleGuard roles={BACKOFFICE_ROLES}>
+    <RoleGuard excludeRoles={["user"]}>
       <AdminViewProvider>
         <div className="kms-admin-shell flex h-dvh min-h-dvh flex-col overflow-hidden bg-page-secondary font-sans">
           <Navbar />
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <Sidebar />
             <main id="kms-main-content" className="flex-1 overflow-y-auto">
-              <Outlet />
+              <div key={location.pathname} className="kms-route-transition min-h-full"><Outlet /></div>
             </main>
           </div>
         </div>
@@ -63,10 +66,11 @@ function PageLoading() {
 }
 
 function PublicLayout() {
+  const location = useLocation();
   return (
     <div className="kms-public flex min-h-screen flex-col bg-page-secondary font-sans">
       <PublicHeader />
-      <main id="kms-main-content" className="flex-1"><Outlet /></main>
+      <main id="kms-main-content" className="flex-1"><div key={location.pathname} className="kms-route-transition"><Outlet /></div></main>
       <PublicFooter />
     </div>
   );
@@ -93,40 +97,50 @@ function ScrollToTopOnNewPage() {
 function App() {
   return (
     <SidebarProvider>
-      <BrowserRouter>
-        <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <ThemeProvider>
           <a href="#kms-main-content" className="kms-skip-link">Lewati ke konten utama</a>
           <ScrollToTopOnNewPage />
           <OfflineNotice />
           <Suspense fallback={<PageLoading />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+              <Route path="/login/pegawai" element={<LoginPage />} />
+              <Route path="/register" element={<Navigate to="/login" replace />} />
               <Route element={<PublicLayout />}>
                 <Route index element={<Page />} />
                 <Route path="detail/:id" element={<DetailPage />} />
+                <Route path="*" element={<StatusPage />} />
               </Route>
               <Route path="/library" element={<Navigate to="/" replace />} />
               <Route path="/admin/comments" element={<Navigate to="/admin/activity" replace />} />
               <Route path="admin" element={<AdminLayout />}>
-                <Route path="dashboard" element={<DashboardPage />} />
-                <Route path="profile" element={<RoleGuard roles={PROFILE_ROLES}><ProfilePage /></RoleGuard>} />
-                <Route path="profile/edit" element={<RoleGuard roles={PROFILE_ROLES}><EditProfilePage /></RoleGuard>} />
+                <Route path="dashboard" element={<PermissionGuard resource="dashboard"><DashboardPage /></PermissionGuard>} />
+                <Route path="profile" element={<PermissionGuard resource="profile"><ProfilePage /></PermissionGuard>} />
+                <Route path="profile/edit" element={<PermissionGuard resource="profile" action="edit" redirectTo="/admin/profile"><EditProfilePage /></PermissionGuard>} />
                 <Route path="profile/security" element={<Navigate to="/admin/profile/edit" replace />} />
-                <Route path="assets" element={<AssetsPage />} />
-                <Route path="assets/recovery" element={<RoleGuard roles={["admin"]}><AssetRecoveryPage /></RoleGuard>} />
-                <Route path="assets/create" element={<RequireAssetWriter><CreateAssetPage /></RequireAssetWriter>} />
-                <Route path="assets/:id" element={<AdminAssetDetailPage />} />
-                <Route path="assets/edit/:id" element={<RequireAssetWriter><EditAssetPage /></RequireAssetWriter>} />
-                <Route path="activity" element={<RoleGuard roles={["pegawai"]}><ActivityPage /></RoleGuard>} />
-                <Route path="staff" element={<StaffPage />} />
-                <Route path="categories" element={<RoleGuard roles={["admin"]}><MasterDataPage type="category" /></RoleGuard>} />
-                <Route path="work-units" element={<RoleGuard roles={["admin"]}><MasterDataPage type="workUnit" /></RoleGuard>} />
+                <Route path="assets" element={<PermissionGuard resource="assets"><AssetsPage /></PermissionGuard>} />
+                <Route path="assets/recovery" element={<PermissionGuard resource="asset_recovery"><AssetRecoveryPage /></PermissionGuard>} />
+                <Route path="asset-verification" element={<PermissionGuard resource="asset_verification"><AssetVerificationPage /></PermissionGuard>} />
+                <Route path="assets/create" element={<PermissionGuard resource="assets" action="post" redirectTo="/admin/assets"><CreateAssetPage /></PermissionGuard>} />
+                <Route path="assets/:id" element={<PermissionGuard resource="assets"><AdminAssetDetailPage /></PermissionGuard>} />
+                <Route path="assets/edit/:id" element={<PermissionGuard resource="assets" action="edit" redirectTo="/admin/assets"><EditAssetPage /></PermissionGuard>} />
+                <Route path="activity" element={<PermissionGuard resource="activity"><ActivityPage /></PermissionGuard>} />
+                <Route path="staff" element={<PermissionGuard resource="staff_management"><StaffPage /></PermissionGuard>} />
+                <Route path="role-permissions" element={<PermissionGuard resource="role_permissions"><RolePermissionsPage /></PermissionGuard>} />
+                <Route path="categories" element={<PermissionGuard resource="categories"><MasterDataPage type="category" /></PermissionGuard>} />
+                <Route path="work-units" element={<PermissionGuard resource="work_units"><MasterDataPage type="workUnit" /></PermissionGuard>} />
+                <Route path="work-units/analytics" element={<PermissionGuard resources={["analytics_echelon_1", "analytics_echelon_2", "analytics_echelon_3"]}><WorkUnitAnalyticsPage /></PermissionGuard>} />
+                <Route path="work-units/:identifier/analytics" element={<PermissionGuard resources={["analytics_echelon_1", "analytics_echelon_2", "analytics_echelon_3"]}><WorkUnitAnalyticsPage /></PermissionGuard>} />
+                <Route path="announcements" element={<PermissionGuard resource="announcements"><AnnouncementsPage /></PermissionGuard>} />
+                <Route path="*" element={<StatusPage code="404" title="Halaman admin tidak tersedia" description="Menu tersebut tidak tersedia untuk akun atau alamat yang Anda buka." />} />
               </Route>
             </Routes>
           </Suspense>
-        </ThemeProvider>
-      </BrowserRouter>
+          </ThemeProvider>
+        </BrowserRouter>
+      </AuthProvider>
     </SidebarProvider>
   );
 }

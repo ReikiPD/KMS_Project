@@ -1,16 +1,35 @@
 const pool = require("../database/db");
 const fs = require("fs/promises");
 const path = require("path");
-const { createNotification } = require("../services/notificationService");
+const { createNotification, notifyPublicationReviewers } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
 const { extractPdfText, uploadsDirectory } = require("../services/mediaService");
+const { hasPermission } = require("../services/permissionService");
 
 const PUBLIC_ASSET_JOINS = `
   FROM knowledge_assets a
   LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
   LEFT JOIN categories c ON a.category_id = c.id
   LEFT JOIN work_units w ON a.work_unit_id = w.id
+  LEFT JOIN work_units parent_w ON w.parent_id = parent_w.id
+  LEFT JOIN work_units grandparent_w ON parent_w.parent_id = grandparent_w.id
 `;
+
+const PUBLIC_WORK_UNIT_FILTER = `(
+  a.work_unit_id IS NULL
+  OR (
+    w.id IS NOT NULL
+    AND NOT EXISTS (
+      WITH RECURSIVE ancestors AS (
+        SELECT id, parent_id, is_public, deleted_at FROM work_units WHERE id = w.id
+        UNION ALL
+        SELECT parent.id, parent.parent_id, parent.is_public, parent.deleted_at
+        FROM work_units parent INNER JOIN ancestors child ON child.parent_id = parent.id
+      )
+      SELECT 1 FROM ancestors WHERE deleted_at IS NOT NULL OR is_public = FALSE
+    )
+  )
+)`;
 
 const PUBLIC_ASSET_RELATIONS = `
   CASE WHEN u.id IS NULL
@@ -21,13 +40,24 @@ const PUBLIC_ASSET_RELATIONS = `
     ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug)
   END AS category,
   CASE WHEN w.id IS NULL THEN NULL
-    ELSE json_build_object('id', w.id, 'name', w.name)
+    ELSE json_build_object(
+      'id', w.id,
+      'name', w.name,
+      'alias', w.alias,
+      'echelon_level', w.echelon_level,
+      'parent_id', w.parent_id,
+      'parent_name', parent_w.name,
+      'parent_alias', parent_w.alias,
+      'grandparent_name', grandparent_w.name,
+      'grandparent_alias', grandparent_w.alias
+    )
   END AS work_unit
 `;
 
 const PUBLIC_ASSET_SELECT = `
   SELECT
     a.id,
+    a.public_id,
     a.title,
     a.slug,
     a.asset_type,
@@ -38,6 +68,7 @@ const PUBLIC_ASSET_SELECT = `
     a.video_chapters,
     a.is_featured,
     a.is_published,
+    a.allow_download,
     a.deleted_at,
     a.view_count,
     a.created_at,
@@ -49,18 +80,20 @@ const PUBLIC_ASSET_SELECT = `
 const PUBLIC_ASSET_CARD_SELECT = `
   SELECT
     a.id,
+    a.public_id,
     a.title,
     a.slug,
     a.asset_type,
     a.file_url,
     a.thumbnail_url,
+    a.allow_download,
     a.view_count,
     a.created_at,
     ${PUBLIC_ASSET_RELATIONS}
   ${PUBLIC_ASSET_JOINS}
 `;
 
-const PUBLIC_SEARCH_VECTOR = `to_tsvector('simple',
+const PUBLIC_SEARCH_TEXT = `(
   COALESCE(a.title, '') || ' ' ||
   COALESCE(a.content, '') || ' ' ||
   COALESCE(a.extracted_text, '') || ' ' ||
@@ -71,6 +104,25 @@ const PUBLIC_SEARCH_VECTOR = `to_tsvector('simple',
   COALESCE(a.file_url, '') || ' ' ||
   COALESCE(c.name, '') || ' ' ||
   COALESCE(w.name, '') || ' ' ||
+  COALESCE(w.alias, '') || ' ' ||
+  COALESCE(parent_w.name, '') || ' ' ||
+  COALESCE(parent_w.alias, '') || ' ' ||
+  COALESCE(u.full_name, '')
+)`;
+
+const PUBLIC_SEARCH_VECTOR = `to_tsvector('simple', ${PUBLIC_SEARCH_TEXT})`;
+
+// Fuzzy matching intentionally stays on short metadata fields. Comparing a
+// query with full PDF text would make every catalogue request unnecessarily
+// expensive as the collection grows.
+const PUBLIC_SEARCH_FUZZY_TEXT = `(
+  COALESCE(a.title, '') || ' ' ||
+  CASE WHEN a.asset_type = 'video' THEN 'video mp4 webm ogg' ELSE 'dokumen pdf' END || ' ' ||
+  COALESCE(c.name, '') || ' ' ||
+  COALESCE(w.name, '') || ' ' ||
+  COALESCE(w.alias, '') || ' ' ||
+  COALESCE(parent_w.name, '') || ' ' ||
+  COALESCE(parent_w.alias, '') || ' ' ||
   COALESCE(u.full_name, '')
 )`;
 
@@ -78,6 +130,33 @@ const getPositiveInteger = (value, fallback, max) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, max);
+};
+
+const parseBooleanInput = (value, fallback = false) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
+const addAssetIdentifierFilter = (values, value, alias = "a") => {
+  const identifier = typeof value === "string" ? value.trim() : String(value || "");
+  if (!identifier) return null;
+  const prefix = alias ? `${alias}.` : "";
+  const publicIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (publicIdPattern.test(identifier)) {
+    return `${prefix}public_id = $${values.push(identifier)}::uuid`;
+  }
+  if (/^\d+$/.test(identifier)) {
+    const numericId = Number.parseInt(identifier, 10);
+    if (Number.isInteger(numericId) && numericId > 0) {
+      return `${prefix}id = $${values.push(numericId)}`;
+    }
+  }
+  return `${prefix}slug = $${values.push(identifier)}`;
 };
 
 const getSearchTerms = (value, maxTerms = 8) => {
@@ -164,7 +243,7 @@ const getPreviousDashboardRange = (period) => {
 
 const buildPublicFilters = ({ q, categoryId, workUnitId }) => {
   const values = [];
-  const filters = ["a.is_published = TRUE", "a.deleted_at IS NULL"];
+  const filters = ["a.is_published = TRUE", "a.deleted_at IS NULL", PUBLIC_WORK_UNIT_FILTER];
   const rawSearchTerm = typeof q === "string" ? q.trim() : "";
   const searchTerm = getSearchTerms(rawSearchTerm).join(" ");
 
@@ -173,6 +252,7 @@ const buildPublicFilters = ({ q, categoryId, workUnitId }) => {
     const parameter = `$${values.length}`;
     filters.push(`(
       ${PUBLIC_SEARCH_VECTOR} @@ plainto_tsquery('simple', ${parameter})
+      OR word_similarity(lower(${parameter}), lower(${PUBLIC_SEARCH_FUZZY_TEXT})) >= 0.38
     )`);
   }
 
@@ -185,7 +265,15 @@ const buildPublicFilters = ({ q, categoryId, workUnitId }) => {
   const parsedWorkUnitId = Number.parseInt(workUnitId, 10);
   if (Number.isInteger(parsedWorkUnitId) && parsedWorkUnitId > 0) {
     values.push(parsedWorkUnitId);
-    filters.push(`a.work_unit_id = $${values.length}`);
+    filters.push(`a.work_unit_id IN (
+      WITH RECURSIVE selected_units AS (
+        SELECT id FROM work_units WHERE id = $${values.length} AND deleted_at IS NULL
+        UNION ALL
+        SELECT child.id FROM work_units child
+        INNER JOIN selected_units parent_scope ON child.parent_id = parent_scope.id
+        WHERE child.deleted_at IS NULL
+      ) SELECT id FROM selected_units
+    )`);
   }
 
   return { values, whereClause: filters.join(" AND "), searchTerm };
@@ -230,11 +318,14 @@ const buildAssetQuality = (asset) => {
   };
 };
 
-const slugify = (value) => value
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9]+/g, "-")
-  .replace(/(^-|-$)+/g, "") || "draft";
+const slugify = (value) => {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "") || "draft";
+  return /^\d+$/.test(slug) ? `aset-${slug}` : slug;
+};
 
 const getAvailableSlug = async (value, excludedId = null, queryable = pool) => {
   const baseSlug = slugify(value).slice(0, 240);
@@ -311,7 +402,12 @@ const removeUnreferencedUploads = async (values) => {
 const getRequestedAuthorId = (req, source = req.query.authorId) => {
   const requested = Number.parseInt(source, 10);
   const hasRequestedAuthor = Number.isInteger(requested) && requested > 0;
-  if (req.user.role === "pegawai") {
+  if (req.accessContext?.id) {
+    if (hasRequestedAuthor && requested !== req.accessContext.id) return { error: "Konteks akun hanya dapat mengakses aset akun yang sedang dipilih" };
+    return { authorId: req.accessContext.id };
+  }
+  const isWriteRequest = !["GET", "HEAD"].includes(req.method);
+  if (!["admin", "pimpinan"].includes(req.user.role) || (isWriteRequest && req.user.role !== "admin")) {
     if (hasRequestedAuthor && requested !== req.user.id) return { error: "Anda hanya dapat mengakses aset sendiri" };
     return { authorId: req.user.id };
   }
@@ -319,7 +415,14 @@ const getRequestedAuthorId = (req, source = req.query.authorId) => {
 };
 
 const resolveAssetAuthorId = async (req, source = req.body.authorId) => {
-  if (req.user.role === "pegawai") return req.user.id;
+  if (req.accessContext?.id) {
+    const parsed = Number.parseInt(source, 10);
+    if (Number.isInteger(parsed) && parsed > 0 && parsed !== req.accessContext.id) {
+      throw new Error("Kontributor harus sama dengan akun yang sedang diakses");
+    }
+    return req.accessContext.id;
+  }
+  if (req.user.role !== "admin") return req.user.id;
   const parsed = Number.parseInt(source, 10);
   if (!Number.isInteger(parsed) || parsed < 1) throw new Error("Admin wajib memilih pegawai sebagai kontributor aset");
   const { rows } = await pool.query(
@@ -335,6 +438,24 @@ const auditActor = (req) => ({
   actorLabel: req.user.role === "admin" ? req.user.full_name : null,
   actorRole: req.user.role,
 });
+
+const wantsPublicationReview = (value) => value === true || value === "true";
+
+const recordPublicationSubmission = async (asset, req) => {
+  if (asset?.publication_status !== "pending_review") return;
+  const actor = req.accessContext || req.user;
+  await pool.query(
+    `INSERT INTO asset_publication_reviews
+       (asset_id, review_round, action, actor_id, actor_label, actor_role)
+     VALUES ($1, $2, 'submitted', $3, $4, $5)`,
+    [asset.id, asset.review_round, actor?.id || req.user?.id || null, actor?.full_name || req.user?.full_name || "Akun KMS", actor?.role || req.user?.role || "pegawai"],
+  );
+  await notifyPublicationReviewers({
+    actorId: actor?.id || req.user?.id || null,
+    assetId: asset.id,
+    workUnitId: asset.work_unit_id,
+  });
+};
 
 const getUploadedFiles = (req) => ({
   thumbnail: req.files?.thumbnail?.[0]?.filename || null,
@@ -442,7 +563,9 @@ const getHomepageAssets = async (req, res) => {
     ? "relevansi"
     : (sortOptions[req.query.sort] ? req.query.sort : (searchTerm.length >= 3 ? "relevansi" : "terbaru"));
   const orderClause = sort === "relevansi"
-    ? `ts_rank(${PUBLIC_SEARCH_VECTOR}, plainto_tsquery('simple', $1)) DESC, a.created_at DESC, a.id DESC`
+    ? `(ts_rank(${PUBLIC_SEARCH_VECTOR}, plainto_tsquery('simple', $1)) * 2
+        + word_similarity(lower($1), lower(${PUBLIC_SEARCH_FUZZY_TEXT}))) DESC,
+       a.created_at DESC, a.id DESC`
     : sortOptions[sort];
 
   try {
@@ -476,19 +599,101 @@ const getHomepageAssets = async (req, res) => {
 
 const getFeaturedAssets = async (_req, res) => {
   try {
-    const query = `
+    const manualQuery = `
       ${PUBLIC_ASSET_CARD_SELECT}
       WHERE a.is_published = TRUE
         AND a.is_featured = TRUE
         AND a.deleted_at IS NULL
+        AND ${PUBLIC_WORK_UNIT_FILTER}
       ORDER BY a.created_at DESC, a.id DESC
       LIMIT 3
     `;
-    const { rows } = await pool.query(query);
-    res.json(rows);
+    const manualResult = await pool.query(manualQuery);
+    if (manualResult.rows.length) return res.json(manualResult.rows);
+
+    const popularQuery = `
+      ${PUBLIC_ASSET_CARD_SELECT}
+      WHERE a.is_published = TRUE
+        AND a.deleted_at IS NULL
+        AND COALESCE(a.view_count, 0) > 0
+        AND ${PUBLIC_WORK_UNIT_FILTER}
+      ORDER BY a.view_count DESC, a.created_at DESC, a.id DESC
+      LIMIT 3
+    `;
+    const popularResult = await pool.query(popularQuery);
+    return res.json(popularResult.rows);
   } catch (error) {
     console.error("Error fetching featured assets:", error);
     res.status(500).json({ error: "Gagal memuat aset sorotan" });
+  }
+};
+
+const updateFeaturedStatus = async (req, res) => {
+  const shouldFeature = req.body?.isFeatured === true || req.body?.isFeatured === "true";
+  const scope = getRequestedAuthorId(req);
+  if (scope.error) return res.status(403).json({ error: scope.error });
+  const values = [];
+  const identifierFilter = addAssetIdentifierFilter(values, req.params.id, "a");
+  if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+  if (scope.authorId) values.push(scope.authorId);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("LOCK TABLE knowledge_assets IN SHARE ROW EXCLUSIVE MODE");
+    const currentResult = await client.query(`
+      SELECT a.id, a.title, a.is_published, a.is_featured,
+             ${PUBLIC_WORK_UNIT_FILTER} AS is_publicly_visible
+      FROM knowledge_assets a
+      LEFT JOIN work_units w ON w.id = a.work_unit_id
+      WHERE ${identifierFilter} AND a.deleted_at IS NULL${scope.authorId ? ` AND a.author_id = $${values.length}` : ""}
+      FOR UPDATE OF a`, values);
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Aset tidak ditemukan" });
+    }
+    if (shouldFeature && (!current.is_published || !current.is_publicly_visible)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "Hanya aset terbit dari Unit Kerja publik yang dapat dijadikan sorotan" });
+    }
+    if (shouldFeature && !current.is_featured) {
+      const countResult = await client.query(`
+        SELECT COUNT(*)::integer AS total
+        FROM knowledge_assets a
+        LEFT JOIN work_units w ON w.id = a.work_unit_id
+        WHERE a.is_featured = TRUE
+          AND a.is_published = TRUE
+          AND a.deleted_at IS NULL
+          AND ${PUBLIC_WORK_UNIT_FILTER}`);
+      if ((countResult.rows[0]?.total || 0) >= 3) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "Maksimal tiga aset dapat ditampilkan sebagai Pengetahuan Sorotan" });
+      }
+    }
+    const { rows } = await client.query(`
+      UPDATE knowledge_assets
+      SET is_featured = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, public_id, title, is_featured`, [shouldFeature, current.id]);
+    await client.query("COMMIT");
+    await recordAudit({
+      ...auditActor(req),
+      action: shouldFeature ? "asset.featured" : "asset.unfeatured",
+      targetType: "asset",
+      targetId: current.id,
+    });
+    const { id: _id, ...asset } = rows[0];
+    return res.json({
+      message: shouldFeature ? "Aset ditambahkan ke Pengetahuan Sorotan" : "Aset dihapus dari Pengetahuan Sorotan",
+      asset,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Error updating featured asset:", error);
+    return res.status(500).json({ error: "Gagal memperbarui Pengetahuan Sorotan" });
+  } finally {
+    client.release();
   }
 };
 
@@ -506,7 +711,13 @@ const getAdminAssets = async (req, res) => {
         const parameter = `$${values.push(`%${term}%`)}`;
         filters.push(`CONCAT_WS(' ', a.title, a.content, c.name, w.name, u.full_name,
           CASE WHEN a.asset_type = 'video' THEN 'video mp4' ELSE 'dokumen pdf' END,
-          CASE WHEN a.is_published THEN 'terbit dipublikasikan' ELSE 'draf' END
+          CASE a.publication_status
+            WHEN 'pending_review' THEN 'menunggu verifikasi diajukan'
+            WHEN 'approved' THEN 'terbit disetujui dipublikasikan'
+            WHEN 'revision_required' THEN 'perlu perbaikan revisi'
+            WHEN 'rejected' THEN 'ditolak tidak layak'
+            ELSE 'draf'
+          END
         ) ILIKE ${parameter}`);
       }
     }
@@ -523,7 +734,10 @@ const getAdminAssets = async (req, res) => {
     const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
     const select = `
       SELECT ${paginated ? "COUNT(*) OVER()::int AS total_count," : ""}
-             a.id, a.title, a.asset_type, a.is_published, a.created_at, a.updated_at,
+             a.id, a.public_id, a.slug, a.title, a.asset_type, a.is_published, a.is_featured,
+             a.publication_status, a.submitted_at, a.reviewed_at, a.review_note, a.review_round,
+             reviewer.full_name AS reviewer_name,
+             a.created_at, a.updated_at,
              ${paginated ? "LEFT(a.content, 360)" : "a.content"} AS content,
              a.thumbnail_url, a.file_url, a.category_id, a.work_unit_id,
              c.name AS category_name, w.name AS work_unit_name,
@@ -532,6 +746,7 @@ const getAdminAssets = async (req, res) => {
       LEFT JOIN categories c ON a.category_id = c.id
       LEFT JOIN work_units w ON a.work_unit_id = w.id
       LEFT JOIN users u ON a.author_id = u.id AND u.deleted_at IS NULL
+      LEFT JOIN users reviewer ON a.reviewed_by = reviewer.id AND reviewer.deleted_at IS NULL
       WHERE ${filters.join(" AND ")}
       ORDER BY ${sortField} ${sortOrder}, a.id ${sortOrder}`;
 
@@ -569,11 +784,14 @@ const getAdminAssets = async (req, res) => {
 };
 
 const getDeletedAssets = async (req, res) => {
+  const scope = getRequestedAuthorId(req);
+  if (scope.error) return res.status(403).json({ error: scope.error });
   const page = getPositiveInteger(req.query.page, 1, 100000);
   const limit = getPositiveInteger(req.query.limit, 10, 50);
   const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
   const values = [];
   const filters = ["a.deleted_at IS NOT NULL"];
+  if (scope.authorId) filters.push(`a.author_id = $${values.push(scope.authorId)}`);
 
   if (q) {
     values.push(`%${q}%`);
@@ -601,7 +819,7 @@ const getDeletedAssets = async (req, res) => {
     const offsetParameter = `$${dataValues.length}`;
     const { rows } = await pool.query(
       `SELECT
-         a.id, a.title, a.slug, a.asset_type, a.is_published,
+         a.id, a.public_id, a.title, a.slug, a.asset_type, a.is_published,
          a.thumbnail_url, a.file_url, a.created_at, a.updated_at, a.deleted_at,
          a.author_id,
          CASE
@@ -632,19 +850,21 @@ const getDeletedAssets = async (req, res) => {
 };
 
 const restoreAsset = async (req, res) => {
-  const assetId = Number.parseInt(req.params.id, 10);
-  if (!Number.isInteger(assetId) || assetId < 1) return res.status(400).json({ error: "ID aset tidak valid" });
-
   try {
     const scope = getRequestedAuthorId(req, req.body?.authorId);
     if (scope.error) return res.status(403).json({ error: scope.error });
+    const lookupValues = [];
+    const identifierFilter = addAssetIdentifierFilter(lookupValues, req.params.id, "");
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (scope.authorId) lookupValues.push(scope.authorId);
     const currentResult = await pool.query(
       `SELECT id, title, slug, is_published, author_id FROM knowledge_assets
-       WHERE id = $1 AND deleted_at IS NOT NULL${scope.authorId ? " AND author_id = $2" : ""}`,
-      scope.authorId ? [assetId, scope.authorId] : [assetId],
+       WHERE ${identifierFilter} AND deleted_at IS NOT NULL${scope.authorId ? ` AND author_id = $${lookupValues.length}` : ""}`,
+      lookupValues,
     );
     const current = currentResult.rows[0];
     if (!current) return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah dipulihkan" });
+    const assetId = current.id;
 
     const restoredSlug = await getAvailableSlug(current.slug || current.title, assetId);
 
@@ -652,10 +872,16 @@ const restoreAsset = async (req, res) => {
       `UPDATE knowledge_assets
        SET deleted_at = NULL,
            is_published = FALSE,
+           publication_status = 'draft',
+           submitted_at = NULL,
+           submitted_by = NULL,
+           reviewed_at = NULL,
+           reviewed_by = NULL,
+           review_note = NULL,
            slug = $2,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND deleted_at IS NOT NULL
-       RETURNING id, title, asset_type, is_published, author_id, updated_at`,
+       RETURNING id, title, asset_type, is_published, publication_status, author_id, updated_at`,
       [assetId, restoredSlug],
     );
     if (!rows[0]) return res.status(404).json({ error: "Aset terhapus tidak ditemukan atau sudah dipulihkan" });
@@ -678,17 +904,21 @@ const restoreAsset = async (req, res) => {
 const restoreAssetsBulk = async (req, res) => {
   const assetIds = getAssetIds(req.body?.ids);
   if (!assetIds.length) return res.status(400).json({ error: "Pilih minimal satu aset yang akan dipulihkan" });
+  const scope = getRequestedAuthorId(req, req.body?.authorId);
+  if (scope.error) return res.status(403).json({ error: scope.error });
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    const lookupValues = [assetIds];
+    if (scope.authorId) lookupValues.push(scope.authorId);
     const currentResult = await client.query(
       `SELECT id, title, slug, is_published, author_id
        FROM knowledge_assets
-       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL
+       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL${scope.authorId ? " AND author_id = $2" : ""}
        ORDER BY id
        FOR UPDATE`,
-      [assetIds],
+      lookupValues,
     );
     if (!currentResult.rows.length) {
       await client.query("ROLLBACK");
@@ -700,7 +930,10 @@ const restoreAssetsBulk = async (req, res) => {
       const restoredSlug = await getAvailableSlug(asset.slug || asset.title, asset.id, client);
       const { rows } = await client.query(
         `UPDATE knowledge_assets
-         SET deleted_at = NULL, is_published = FALSE, slug = $2, updated_at = CURRENT_TIMESTAMP
+         SET deleted_at = NULL, is_published = FALSE, publication_status = 'draft',
+             submitted_at = NULL, submitted_by = NULL, reviewed_at = NULL,
+             reviewed_by = NULL, review_note = NULL,
+             slug = $2, updated_at = CURRENT_TIMESTAMP
          WHERE id = $1 AND deleted_at IS NOT NULL
          RETURNING id, title, asset_type, is_published, author_id, updated_at`,
         [asset.id, restoredSlug],
@@ -735,18 +968,22 @@ const permanentlyDeleteAssets = async (req, res) => {
   if (req.body?.confirmation !== "HAPUS PERMANEN") {
     return res.status(400).json({ error: "Konfirmasi penghapusan permanen tidak sesuai" });
   }
+  const scope = getRequestedAuthorId(req, req.body?.authorId);
+  if (scope.error) return res.status(403).json({ error: scope.error });
 
   const client = await pool.connect();
   let deletedAssets = [];
   try {
     await client.query("BEGIN");
+    const lookupValues = [assetIds];
+    if (scope.authorId) lookupValues.push(scope.authorId);
     const currentResult = await client.query(
       `SELECT id, title, file_url, thumbnail_url
        FROM knowledge_assets
-       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL
+       WHERE id = ANY($1::integer[]) AND deleted_at IS NOT NULL${scope.authorId ? " AND author_id = $2" : ""}
        ORDER BY id
        FOR UPDATE`,
-      [assetIds],
+      lookupValues,
     );
     if (!currentResult.rows.length) {
       await client.query("ROLLBACK");
@@ -791,6 +1028,14 @@ const permanentlyDeleteAssets = async (req, res) => {
 };
 
 const getAdminDashboard = async (req, res) => {
+  const accessSubject = req.accessContext || req.user;
+  const isGlobalAdmin = req.user?.role === "admin" && !req.accessContext;
+  const hasOrganizationAnalytics = [1, 2, 3].some((level) => hasPermission(accessSubject, `analytics_echelon_${level}`, "view"));
+  if (!isGlobalAdmin && accessSubject?.role !== "pegawai" && hasOrganizationAnalytics) {
+    return res.status(403).json({ error: accessSubject.work_unit_id
+      ? "Gunakan halaman Analitik Unit Saya untuk melihat statistik sesuai cakupan organisasi"
+      : "Akun pimpinan belum memiliki Unit Kerja sebagai batas analitik" });
+  }
   const scope = getRequestedAuthorId(req);
   if (scope.error) return res.status(403).json({ error: scope.error });
   const period = getDashboardPeriod(req.query);
@@ -822,14 +1067,14 @@ const getAdminDashboard = async (req, res) => {
       WHERE a.deleted_at IS NULL${assetScope}
     `;
     const topAssetsQuery = period.hasRange ? `
-      SELECT a.id, a.title, a.asset_type, COUNT(v.id)::int AS view_count, a.created_at,
+      SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, COUNT(v.id)::int AS view_count, a.created_at,
              c.name AS category_name, w.name AS work_unit_name
       FROM asset_views v INNER JOIN knowledge_assets a ON a.id = v.asset_id
       LEFT JOIN categories c ON a.category_id = c.id LEFT JOIN work_units w ON a.work_unit_id = w.id
       WHERE a.is_published = TRUE AND a.deleted_at IS NULL${viewRangeFilter}${viewScope}
       GROUP BY a.id, c.name, w.name ORDER BY COUNT(v.id) DESC, a.created_at DESC, a.id DESC LIMIT 5
     ` : `
-      SELECT a.id, a.title, a.asset_type, COALESCE(a.view_count, 0)::int AS view_count, a.created_at,
+      SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, COALESCE(a.view_count, 0)::int AS view_count, a.created_at,
              c.name AS category_name, w.name AS work_unit_name
       FROM knowledge_assets a LEFT JOIN categories c ON a.category_id = c.id LEFT JOIN work_units w ON a.work_unit_id = w.id
       WHERE a.is_published = TRUE AND a.deleted_at IS NULL${assetScope}
@@ -837,7 +1082,7 @@ const getAdminDashboard = async (req, res) => {
     `;
     const shareRangeFilter = period.hasRange ? " AND s.created_at >= $1::date AND s.created_at < $2::date" : "";
     const topSharedQuery = `
-      SELECT a.id, a.title, a.asset_type, COUNT(s.id)::int AS share_count, a.created_at
+      SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, COUNT(s.id)::int AS share_count, a.created_at
       FROM asset_share_events s INNER JOIN knowledge_assets a ON a.id = s.asset_id
       WHERE a.is_published = TRUE AND a.deleted_at IS NULL${shareRangeFilter}${scope.authorId ? ` AND a.author_id = $${scopedValues.length}` : ""}
       GROUP BY a.id ORDER BY COUNT(s.id) DESC, a.created_at DESC, a.id DESC LIMIT 5`;
@@ -872,12 +1117,12 @@ const getAdminDashboard = async (req, res) => {
         COUNT(*) FILTER (WHERE NOT is_published)::int AS draft_count, COALESCE(SUM(view_count), 0)::int AS total_view_count
       FROM knowledge_assets WHERE author_id = $1 AND deleted_at IS NULL`, [personalAuthorId]) : Promise.resolve({ rows: [{ asset_count: 0, published_asset_count: 0, draft_count: 0, total_view_count: 0 }] });
     const recentPromise = personalAuthorId ? pool.query(`
-      SELECT a.id, a.title, a.asset_type, a.is_published, COALESCE(a.view_count, 0)::int AS view_count, a.created_at, c.name AS category_name
+      SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, a.is_published, COALESCE(a.view_count, 0)::int AS view_count, a.created_at, c.name AS category_name
       FROM knowledge_assets a LEFT JOIN categories c ON c.id = a.category_id
       WHERE a.author_id = $1 AND a.deleted_at IS NULL ORDER BY a.created_at DESC, a.id DESC LIMIT 5`, [personalAuthorId]) : Promise.resolve({ rows: [] });
     // Selalu sertakan ranking global untuk Admin. Frontend menyembunyikannya
     // ketika Admin sedang berada dalam konteks akun Pegawai.
-    const includeStaffRankings = req.user.role === "admin";
+    const includeStaffRankings = req.user.role === "admin" && !req.accessContext;
     const staffPeriodValues = period.hasRange ? [period.startDate, period.endExclusive] : [];
     const staffAssetRangeFilter = period.hasRange ? " AND a.created_at >= $1::date AND a.created_at < $2::date" : "";
     const emptyStaffRanking = () => Promise.resolve({ rows: [] });
@@ -922,7 +1167,36 @@ const getAdminDashboard = async (req, res) => {
       HAVING COALESCE(SUM(a.view_count), 0) > 0
       ORDER BY metric_value DESC, u.full_name ASC
       LIMIT 5`, staffPeriodValues) : emptyStaffRanking();
-    const [organizationResult, trendResult, topAssetsResult, topSharedResult, popularSearchesResult, personalResult, recentAssetsResult, staffPublishedResult, staffViewsResult, staffCreatedResult, previousOrganizationResult] = await Promise.all([
+    const echelonComparisonPromise = scope.authorId
+      ? Promise.resolve({ rows: [] })
+      : period.hasRange ? pool.query(`
+      SELECT w.public_id, w.name, w.alias,
+        (SELECT COUNT(a.id)::INTEGER
+         FROM knowledge_assets a
+         INNER JOIN work_units aw ON aw.id = a.work_unit_id
+         WHERE a.deleted_at IS NULL AND a.is_published = TRUE
+           AND (aw.id = w.id OR aw.parent_id = w.id)
+           AND a.created_at >= $1::date AND a.created_at < $2::date) AS published_asset_count,
+        (SELECT COUNT(v.id)::INTEGER
+         FROM asset_views v
+         INNER JOIN knowledge_assets a ON a.id = v.asset_id
+         INNER JOIN work_units aw ON aw.id = a.work_unit_id
+         WHERE a.deleted_at IS NULL AND a.is_published = TRUE
+           AND (aw.id = w.id OR aw.parent_id = w.id)
+           AND v.created_at >= $1::date AND v.created_at < $2::date) AS total_view_count
+      FROM work_units w
+      WHERE w.echelon_level = 1 AND w.deleted_at IS NULL
+      ORDER BY w.name ASC`, [period.startDate, period.endExclusive]) : pool.query(`
+      SELECT w.public_id, w.name, w.alias,
+        COUNT(a.id) FILTER (WHERE a.is_published = TRUE)::INTEGER AS published_asset_count,
+        COALESCE(SUM(a.view_count) FILTER (WHERE a.is_published = TRUE), 0)::INTEGER AS total_view_count
+      FROM work_units w
+      LEFT JOIN work_units aw ON aw.deleted_at IS NULL AND (aw.id = w.id OR aw.parent_id = w.id)
+      LEFT JOIN knowledge_assets a ON a.work_unit_id = aw.id AND a.deleted_at IS NULL
+      WHERE w.echelon_level = 1 AND w.deleted_at IS NULL
+      GROUP BY w.id
+      ORDER BY w.name ASC`);
+    const [organizationResult, trendResult, topAssetsResult, topSharedResult, popularSearchesResult, personalResult, recentAssetsResult, staffPublishedResult, staffViewsResult, staffCreatedResult, previousOrganizationResult, echelonComparisonResult] = await Promise.all([
       pool.query(organizationQuery, scopedValues),
       pool.query(trendQuery, scope.authorId ? [trend.startDate, trend.endExclusive, scope.authorId] : [trend.startDate, trend.endExclusive]),
       pool.query(topAssetsQuery, scopedValues), pool.query(topSharedQuery, scopedValues),
@@ -936,7 +1210,7 @@ const getAdminDashboard = async (req, res) => {
         GROUP BY e.query
         ORDER BY COUNT(*) DESC, MAX(e.created_at) DESC
         LIMIT 5`, period.hasRange ? [period.startDate, period.endExclusive] : []),
-      personalPromise, recentPromise, staffPublishedPromise, staffViewsPromise, staffCreatedPromise, previousOrganizationPromise,
+      personalPromise, recentPromise, staffPublishedPromise, staffViewsPromise, staffCreatedPromise, previousOrganizationPromise, echelonComparisonPromise,
     ]);
     const searchTotals = popularSearchesResult.rows[0] || { total_searches: 0, zero_result_searches: 0 };
     const popularSearches = popularSearchesResult.rows.map(({ total_searches: _total, zero_result_searches: _zero, ...row }) => row);
@@ -958,6 +1232,7 @@ const getAdminDashboard = async (req, res) => {
         views: staffViewsResult.rows,
         created: staffCreatedResult.rows,
       },
+      echelonComparison: echelonComparisonResult.rows,
       period: { key: period.key, startDate: period.startDate, endDate: period.endDate, trendGranularity: trend.label, viewMetric: period.hasRange ? "period" : "all_time" },
       comparison: { available: Boolean(previousPeriod), previous: previousOrganizationResult.rows[0] },
       selectedAuthorId: personalAuthorId,
@@ -970,13 +1245,19 @@ const getAdminDashboard = async (req, res) => {
 };
 
 const getAdminDashboardRanking = async (req, res) => {
+  const accessSubject = req.accessContext || req.user;
+  const isGlobalAdmin = req.user?.role === "admin" && !req.accessContext;
+  if (!isGlobalAdmin && accessSubject?.role !== "pegawai"
+    && [1, 2, 3].some((level) => hasPermission(accessSubject, `analytics_echelon_${level}`, "view"))) {
+    return res.status(403).json({ error: "Ranking global tidak tersedia di luar cakupan organisasi" });
+  }
   const metric = typeof req.query.metric === "string" ? req.query.metric : "";
   const validMetrics = new Set(["search", "view", "share", "staff_published", "staff_views", "staff_created"]);
   if (!validMetrics.has(metric)) {
     return res.status(400).json({ error: "Metric ranking tidak valid" });
   }
   const isStaffMetric = metric.startsWith("staff_");
-  if (isStaffMetric && req.user.role !== "admin") {
+  if (isStaffMetric && (req.user.role !== "admin" || req.accessContext)) {
     return res.status(403).json({ error: "Ranking kontribusi Pegawai hanya tersedia untuk Admin" });
   }
 
@@ -1069,7 +1350,7 @@ const getAdminDashboardRanking = async (req, res) => {
 
     if (metric === "view" && !period.hasRange) {
       baseSql = `
-        SELECT a.id, a.title, a.asset_type, a.thumbnail_url,
+        SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, a.thumbnail_url,
                COALESCE(u.full_name, 'Pegawai tidak aktif') AS author_name,
                c.name AS category_name, COALESCE(a.view_count, 0)::int AS metric_value,
                a.title AS sort_label
@@ -1079,7 +1360,7 @@ const getAdminDashboardRanking = async (req, res) => {
         WHERE ${assetFilters.join(" AND ")}`;
     } else {
       baseSql = `
-        SELECT a.id, a.title, a.asset_type, a.thumbnail_url,
+        SELECT a.id, a.public_id, a.slug, a.title, a.asset_type, a.thumbnail_url,
                COALESCE(u.full_name, 'Pegawai tidak aktif') AS author_name,
                c.name AS category_name, COUNT(${eventAlias}.id)::int AS metric_value,
                a.title AS sort_label
@@ -1120,14 +1401,18 @@ const getAssetById = async (req, res) => {
   const { id } = req.params;
 
   try {
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
     const query = `
       ${PUBLIC_ASSET_SELECT}
-      WHERE a.id = $1
+      WHERE ${identifierFilter}
         AND a.is_published = TRUE
         AND a.deleted_at IS NULL
+        AND ${PUBLIC_WORK_UNIT_FILTER}
     `;
 
-    const { rows } = await pool.query(query, [id]);
+    const { rows } = await pool.query(query, values);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: "Aset tidak ditemukan atau belum dipublikasikan" });
@@ -1144,13 +1429,23 @@ const incrementAssetView = async (req, res) => {
   const { id } = req.params;
 
   try {
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
     const query = `
-      WITH viewed_asset AS (
+      WITH visible_asset AS (
+        SELECT a.id
+        FROM knowledge_assets a
+        LEFT JOIN work_units w ON w.id = a.work_unit_id
+        WHERE ${identifierFilter}
+          AND a.is_published = TRUE
+          AND a.deleted_at IS NULL
+          AND ${PUBLIC_WORK_UNIT_FILTER}
+      ),
+      viewed_asset AS (
         UPDATE knowledge_assets
         SET view_count = COALESCE(view_count, 0) + 1
-        WHERE id = $1
-          AND is_published = TRUE
-          AND deleted_at IS NULL
+        WHERE id IN (SELECT id FROM visible_asset)
         RETURNING id, view_count
       ),
       view_event AS (
@@ -1160,7 +1455,7 @@ const incrementAssetView = async (req, res) => {
       )
       SELECT view_count FROM viewed_asset
     `;
-    const { rows } = await pool.query(query, [id]);
+    const { rows } = await pool.query(query, values);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: "Aset tidak ditemukan atau belum dipublikasikan" });
@@ -1174,15 +1469,19 @@ const incrementAssetView = async (req, res) => {
 };
 
 const trackAssetShare = async (req, res) => {
-  const id = Number.parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "ID aset tidak valid" });
-
   try {
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, req.params.id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
     const { rows } = await pool.query(
-      `SELECT id, author_id
-       FROM knowledge_assets
-       WHERE id = $1 AND is_published = TRUE AND deleted_at IS NULL`,
-      [id],
+      `SELECT a.id, a.author_id
+       FROM knowledge_assets a
+       LEFT JOIN work_units w ON w.id = a.work_unit_id
+       WHERE ${identifierFilter}
+         AND a.is_published = TRUE
+         AND a.deleted_at IS NULL
+         AND ${PUBLIC_WORK_UNIT_FILTER}`,
+      values,
     );
     const asset = rows[0];
     if (!asset) return res.status(404).json({ error: "Aset tidak ditemukan" });
@@ -1207,41 +1506,51 @@ const getRelatedAssets = async (req, res) => {
   const { id } = req.params;
 
   try {
+    const identifierValues = [];
+    const identifierFilter = addAssetIdentifierFilter(identifierValues, id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
     const currentResult = await pool.query(
       `
-        SELECT category_id
-        FROM knowledge_assets
-        WHERE id = $1 AND is_published = TRUE AND deleted_at IS NULL
+        SELECT a.id, a.category_id
+        FROM knowledge_assets a
+        LEFT JOIN work_units w ON w.id = a.work_unit_id
+        WHERE ${identifierFilter}
+          AND a.is_published = TRUE
+          AND a.deleted_at IS NULL
+          AND ${PUBLIC_WORK_UNIT_FILTER}
       `,
-      [id],
+      identifierValues,
     );
 
     if (currentResult.rows.length === 0) {
       return res.status(404).json({ error: "Aset tidak ditemukan atau belum dipublikasikan" });
     }
 
+    const currentAssetId = currentResult.rows[0].id;
     const categoryId = currentResult.rows[0].category_id;
     const primaryResult = categoryId ? await pool.query(
       `${PUBLIC_ASSET_CARD_SELECT}
        WHERE a.id <> $1
          AND a.is_published = TRUE
          AND a.deleted_at IS NULL
+         AND ${PUBLIC_WORK_UNIT_FILTER}
          AND a.category_id = $2
        ORDER BY a.created_at DESC, a.id DESC
        LIMIT 5`,
-      [id, categoryId],
+      [currentAssetId, categoryId],
     ) : { rows: [] };
     const selected = primaryResult.rows;
     const selectedIds = selected.map((asset) => asset.id);
 
     if (selected.length < 5) {
-      const fallbackValues = [id, ...selectedIds];
+      const fallbackValues = [currentAssetId, ...selectedIds];
       const excludedIds = fallbackValues.map((_, index) => `$${index + 1}`).join(", ");
       const fallbackResult = await pool.query(
         `${PUBLIC_ASSET_CARD_SELECT}
          WHERE a.id NOT IN (${excludedIds})
-           AND a.is_published = TRUE
-           AND a.deleted_at IS NULL
+            AND a.is_published = TRUE
+            AND a.deleted_at IS NULL
+            AND ${PUBLIC_WORK_UNIT_FILTER}
          ORDER BY a.created_at DESC, a.id DESC
          LIMIT $${fallbackValues.length + 1}`,
         [...fallbackValues, 5 - selected.length],
@@ -1262,14 +1571,18 @@ const getAdminAssetById = async (req, res) => {
   if (scope.error) return res.status(403).json({ error: scope.error });
 
   try {
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (scope.authorId) values.push(scope.authorId);
     const query = `
       SELECT a.*, c.name AS category_name, w.name AS work_unit_name
       FROM knowledge_assets a
       LEFT JOIN categories c ON a.category_id = c.id
       LEFT JOIN work_units w ON a.work_unit_id = w.id
-      WHERE a.id = $1 AND a.deleted_at IS NULL${scope.authorId ? " AND a.author_id = $2" : ""}
+      WHERE ${identifierFilter} AND a.deleted_at IS NULL${scope.authorId ? ` AND a.author_id = $${values.length}` : ""}
     `;
-    const { rows } = await pool.query(query, scope.authorId ? [id, scope.authorId] : [id]);
+    const { rows } = await pool.query(query, values);
 
     if (rows.length === 0) {
       return res.status(404).json({ error: "Aset tidak ditemukan" });
@@ -1286,16 +1599,28 @@ const getAdminAssetDetail = async (req, res) => {
   const { id } = req.params;
   const scope = getRequestedAuthorId(req);
   if (scope.error) return res.status(403).json({ error: scope.error });
-  const includeDeleted = req.user?.role === "admin" && req.query.includeDeleted === "true";
+    const includeDeleted = req.user?.role === "admin" && !req.accessContext && req.query.includeDeleted === "true";
   try {
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, id);
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (scope.authorId) values.push(scope.authorId);
     const { rows } = await pool.query(
       `${PUBLIC_ASSET_SELECT}
-       WHERE a.id = $1 AND a.deleted_at ${includeDeleted ? "IS NOT NULL" : "IS NULL"}${scope.authorId ? " AND a.author_id = $2" : ""}`,
-      scope.authorId ? [id, scope.authorId] : [id],
+       WHERE ${identifierFilter} AND a.deleted_at ${includeDeleted ? "IS NOT NULL" : "IS NULL"}${scope.authorId ? ` AND a.author_id = $${values.length}` : ""}`,
+      values,
     );
     if (!rows[0]) return res.status(404).json({ error: "Aset tidak ditemukan" });
     const asset = rows[0];
-    res.json({ ...asset, quality: buildAssetQuality(asset) });
+    const reviewResult = await pool.query(
+      `SELECT a.publication_status, a.submitted_at, a.reviewed_at, a.review_note, a.review_round,
+              reviewer.full_name AS reviewer_name
+       FROM knowledge_assets a
+       LEFT JOIN users reviewer ON reviewer.id = a.reviewed_by
+       WHERE a.id = $1`,
+      [asset.id],
+    );
+    res.json({ ...asset, ...reviewResult.rows[0], quality: buildAssetQuality(asset) });
   } catch (error) {
     console.error("Error fetching admin asset detail:", error);
     res.status(500).json({ error: "Gagal memuat detail aset" });
@@ -1316,8 +1641,8 @@ const createDraft = async (req, res) => {
     const extractedText = await getExtractedText(assetType, uploaded.file);
     const { rows } = await pool.query(
       `INSERT INTO knowledge_assets
-       (title, slug, asset_type, file_url, content, thumbnail_url, extracted_text, video_duration_seconds, video_chapters, is_published, author_id, category_id, work_unit_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, FALSE, $10, $11, $12)
+       (title, slug, asset_type, file_url, content, thumbnail_url, extracted_text, video_duration_seconds, video_chapters, is_published, allow_download, author_id, category_id, work_unit_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, FALSE, $10, $11, $12, $13)
        RETURNING *`,
       [
         title,
@@ -1329,6 +1654,7 @@ const createDraft = async (req, res) => {
         extractedText,
         video.duration,
         JSON.stringify(video.chapters),
+        parseBooleanInput(req.body.allow_download, true),
         await resolveAssetAuthorId(req),
         req.body.category_id ? Number(req.body.category_id) : null,
         req.body.work_unit_id ? Number(req.body.work_unit_id) : null,
@@ -1349,9 +1675,17 @@ const updateDraft = async (req, res) => {
   try {
     const draftScope = getRequestedAuthorId(req, req.body.authorId);
     if (draftScope.error) return res.status(403).json({ error: draftScope.error });
+    const lookupValues = [];
+    const identifierFilter = addAssetIdentifierFilter(lookupValues, req.params.id, "");
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (draftScope.authorId) lookupValues.push(draftScope.authorId);
     const currentResult = await pool.query(
-      `SELECT * FROM knowledge_assets WHERE id = $1 AND is_published = FALSE AND deleted_at IS NULL${draftScope.authorId ? " AND author_id = $2" : ""}`,
-      draftScope.authorId ? [req.params.id, draftScope.authorId] : [req.params.id],
+       `SELECT * FROM knowledge_assets
+        WHERE ${identifierFilter}
+          AND is_published = FALSE
+          AND publication_status IN ('draft', 'revision_required', 'rejected')
+          AND deleted_at IS NULL${draftScope.authorId ? ` AND author_id = $${lookupValues.length}` : ""}`,
+      lookupValues,
     );
     const current = currentResult.rows[0];
     if (!current) return res.status(404).json({ error: "Draf tidak ditemukan atau sudah diterbitkan" });
@@ -1367,8 +1701,9 @@ const updateDraft = async (req, res) => {
          category_id = $4, work_unit_id = $5,
          thumbnail_url = COALESCE($6, thumbnail_url), file_url = COALESCE($7, file_url),
          extracted_text = $8, video_duration_seconds = $9, video_chapters = $10::jsonb,
+         allow_download = $11,
          updated_at = CURRENT_TIMESTAMP
-       WHERE id = $11 AND is_published = FALSE AND deleted_at IS NULL
+       WHERE id = $12 AND is_published = FALSE AND deleted_at IS NULL
        RETURNING *`,
       [
         title,
@@ -1381,6 +1716,7 @@ const updateDraft = async (req, res) => {
         extractedText,
         video.duration,
         JSON.stringify(video.chapters),
+        parseBooleanInput(req.body.allow_download, current.allow_download),
         current.id,
       ],
     );
@@ -1415,11 +1751,18 @@ const createAsset = async (req, res) => {
     const uniqueSlug = await getAvailableSlug(slug || title);
     const authorId = await resolveAssetAuthorId(req);
 
+    const submitForReview = wantsPublicationReview(is_published);
+    const publicationStatus = submitForReview ? "pending_review" : "draft";
     const query = `
       INSERT INTO knowledge_assets 
-        (title, slug, asset_type, file_url, content, thumbnail_url, extracted_text, video_duration_seconds, video_chapters, is_published, author_id, category_id, work_unit_id)
+        (title, slug, asset_type, file_url, content, thumbnail_url, extracted_text,
+         video_duration_seconds, video_chapters, is_published, publication_status,
+         submitted_at, submitted_by, review_round, allow_download, author_id, category_id, work_unit_id)
       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, FALSE, $10::varchar,
+         CASE WHEN $10::varchar = 'pending_review' THEN CURRENT_TIMESTAMP END,
+         $11, CASE WHEN $10::varchar = 'pending_review' THEN 1 ELSE 0 END,
+         $12, $13, $14, $15)
       RETURNING *;
     `;
 
@@ -1433,23 +1776,30 @@ const createAsset = async (req, res) => {
       extractedText,
       video.duration,
       JSON.stringify(video.chapters),
-      is_published === "true",
+      publicationStatus,
+      submitForReview ? authorId : null,
+      parseBooleanInput(req.body.allow_download, true),
       authorId,
       category_id ? Number(category_id) : null,
       work_unit_id ? Number(work_unit_id) : null,
     ];
 
     const { rows } = await pool.query(query, values);
-    await recordAudit({ ...auditActor(req), action: is_published === "true" ? "asset.created_published" : "asset.created_draft", targetType: "asset", targetId: rows[0].id, metadata: { assetType, authorId } });
-    res.status(201).json({ ...rows[0], quality: buildAssetQuality(rows[0]) });
+    await recordPublicationSubmission(rows[0], req);
+    await recordAudit({ ...auditActor(req), action: submitForReview ? "asset.publication_submitted" : "asset.created_draft", targetType: "asset", targetId: rows[0].id, metadata: { assetType, authorId, reviewRound: rows[0].review_round } });
+    res.status(201).json({
+      ...rows[0],
+      message: submitForReview ? "Aset berhasil diajukan untuk verifikasi" : "Aset berhasil disimpan sebagai draf",
+      quality: buildAssetQuality(rows[0]),
+    });
   } catch (error) {
     console.error("Error detail:", error.message || error);
     if (error.code === "23505") {
       return res.status(409).json({ error: "Alamat aset mengalami konflik. Coba simpan kembali agar sistem membuat alamat baru." });
     }
-    res
-      .status(500)
-      .json({ error: "Gagal menyimpan aset", detail: error.message });
+    const payload = { error: "Gagal menyimpan aset" };
+    if (process.env.NODE_ENV !== "production") payload.detail = error.message;
+    res.status(500).json(payload);
   }
 };
 
@@ -1470,9 +1820,13 @@ const updateAsset = async (req, res) => {
     // 1. Cek ketersediaan dan kepemilikan aset
     const scope = getRequestedAuthorId(req, req.body.authorId);
     if (scope.error) return res.status(403).json({ error: scope.error });
+    const lookupValues = [];
+    const identifierFilter = addAssetIdentifierFilter(lookupValues, id, "");
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (scope.authorId) lookupValues.push(scope.authorId);
     const { rows: currentRows } = await pool.query(
-      `SELECT * FROM knowledge_assets WHERE id = $1 AND deleted_at IS NULL${scope.authorId ? " AND author_id = $2" : ""}`,
-      scope.authorId ? [id, scope.authorId] : [id],
+      `SELECT * FROM knowledge_assets WHERE ${identifierFilter} AND deleted_at IS NULL${scope.authorId ? ` AND author_id = $${lookupValues.length}` : ""}`,
+      lookupValues,
     );
     const current = currentRows[0];
 
@@ -1482,6 +1836,9 @@ const updateAsset = async (req, res) => {
           "Aset tidak ditemukan atau Anda tidak memiliki izin untuk mengeditnya.",
       });
     }
+    if (current.publication_status === "pending_review") {
+      return res.status(409).json({ error: "Aset sedang diverifikasi dan tidak dapat diubah sampai keputusan diberikan" });
+    }
 
     // 2. Tangkap path file baru (jika user mengunggahnya)
     const normalizedAssetType = ASSET_TYPES.has(asset_type) ? asset_type : "document";
@@ -1490,10 +1847,12 @@ const updateAsset = async (req, res) => {
     if (mediaError) return res.status(400).json({ error: mediaError });
     const video = normalizeVideoMetadata(req.body, normalizedAssetType, current);
     const extractedText = await getExtractedText(normalizedAssetType, uploaded.file, current);
-    const uniqueSlug = await getAvailableSlug(slug || title, Number(id));
+    const uniqueSlug = await getAvailableSlug(slug || title, current.id);
 
     // 3. Eksekusi Update menggunakan COALESCE
     // COALESCE akan menyimpan nilai baru jika ada, atau mempertahankan data lama di database jika file baru = null
+    const submitForReview = wantsPublicationReview(is_published);
+    const publicationStatus = submitForReview ? "pending_review" : "draft";
     const updateQuery = `
       UPDATE knowledge_assets
       SET 
@@ -1503,14 +1862,22 @@ const updateAsset = async (req, res) => {
         content = $4,
         category_id = $5,
         work_unit_id = $6,
-        is_published = $7,
-        thumbnail_url = COALESCE($8, thumbnail_url), -- Nama disesuaikan
-        file_url = COALESCE($9, file_url),          -- Nama disesuaikan
-        extracted_text = $10,
-        video_duration_seconds = $11,
-        video_chapters = $12::jsonb,
+        is_published = FALSE,
+        publication_status = $7::varchar,
+        submitted_at = CASE WHEN $7::varchar = 'pending_review' THEN CURRENT_TIMESTAMP ELSE submitted_at END,
+        submitted_by = CASE WHEN $7::varchar = 'pending_review' THEN $8 ELSE submitted_by END,
+        reviewed_at = CASE WHEN $7::varchar = 'pending_review' THEN NULL ELSE reviewed_at END,
+        reviewed_by = CASE WHEN $7::varchar = 'pending_review' THEN NULL ELSE reviewed_by END,
+        review_note = CASE WHEN $7::varchar = 'pending_review' THEN NULL ELSE review_note END,
+        review_round = CASE WHEN $7::varchar = 'pending_review' THEN review_round + 1 ELSE review_round END,
+        thumbnail_url = COALESCE($9, thumbnail_url),
+        file_url = COALESCE($10, file_url),
+        extracted_text = $11,
+        video_duration_seconds = $12,
+        video_chapters = $13::jsonb,
+        allow_download = $14,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $13
+      WHERE id = $15
       RETURNING *;
     `;
 
@@ -1521,20 +1888,23 @@ const updateAsset = async (req, res) => {
       content,
       category_id ? parseInt(category_id) : null,
       work_unit_id ? parseInt(work_unit_id) : null,
-      is_published === "true",
+      publicationStatus,
+      submitForReview ? current.author_id : null,
       uploaded.thumbnail,
       uploaded.file?.filename || null,
       extractedText,
       video.duration,
       JSON.stringify(video.chapters),
-      id,
+      parseBooleanInput(req.body.allow_download, current.allow_download),
+      current.id,
     ];
 
     const { rows } = await pool.query(updateQuery, values);
-    await recordAudit({ ...auditActor(req), action: is_published === "true" ? "asset.updated_published" : "asset.updated_draft", targetType: "asset", targetId: rows[0].id, metadata: { assetType: normalizedAssetType, authorId: current.author_id } });
+    await recordPublicationSubmission(rows[0], req);
+    await recordAudit({ ...auditActor(req), action: submitForReview ? "asset.publication_submitted" : "asset.updated_draft", targetType: "asset", targetId: rows[0].id, metadata: { assetType: normalizedAssetType, authorId: current.author_id, reviewRound: rows[0].review_round } });
 
     res.json({
-      message: "Aset berhasil diperbarui",
+      message: submitForReview ? "Aset berhasil diajukan untuk verifikasi" : "Aset berhasil diperbarui sebagai draf",
       asset: { ...rows[0], quality: buildAssetQuality(rows[0]) },
     });
   } catch (error) {
@@ -1551,9 +1921,13 @@ const deleteAsset = async (req, res) => {
   try {
     const scope = getRequestedAuthorId(req);
     if (scope.error) return res.status(403).json({ error: scope.error });
+    const values = [];
+    const identifierFilter = addAssetIdentifierFilter(values, id, "");
+    if (!identifierFilter) return res.status(400).json({ error: "Referensi aset tidak valid" });
+    if (scope.authorId) values.push(scope.authorId);
     const query = `UPDATE knowledge_assets SET deleted_at = CURRENT_TIMESTAMP
-      WHERE id = $1 AND deleted_at IS NULL${scope.authorId ? " AND author_id = $2" : ""} RETURNING id`;
-    const { rows } = await pool.query(query, scope.authorId ? [id, scope.authorId] : [id]);
+      WHERE ${identifierFilter} AND deleted_at IS NULL${scope.authorId ? ` AND author_id = $${values.length}` : ""} RETURNING id`;
+    const { rows } = await pool.query(query, values);
 
     if (rows.length === 0)
       return res.status(404).json({ error: "Aset tidak ditemukan atau bukan milik Anda" });
@@ -1570,6 +1944,7 @@ module.exports = {
   // Assets
   getHomepageAssets,
   getFeaturedAssets,
+  updateFeaturedStatus,
   getAdminAssets,
   getDeletedAssets,
   restoreAsset,

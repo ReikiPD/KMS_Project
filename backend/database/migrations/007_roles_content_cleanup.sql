@@ -3,13 +3,12 @@
 ALTER TABLE users
   DROP CONSTRAINT IF EXISTS users_role_check;
 
--- Admin berpindah ke kredensial environment. Akun Admin lama dipertahankan
--- sebagai Pegawai agar aset dan riwayatnya tidak hilang.
-UPDATE users SET role = 'pegawai' WHERE role = 'admin';
+-- Akun Admin database dipertahankan. Kredensial Admin environment tetap dapat
+-- digunakan sebagai akses pemulihan terpisah.
 
-ALTER TABLE users
-  ADD CONSTRAINT users_role_check
-  CHECK (role IN ('user', 'pegawai', 'pimpinan'));
+-- Role divalidasi melalui tabel access_roles pada migrasi terbaru. Constraint
+-- daftar statis sengaja tidak dibuat kembali agar migrasi tetap idempoten
+-- setelah Admin menambahkan role kustom.
 
 ALTER TABLE knowledge_assets
   DROP COLUMN IF EXISTS summary;

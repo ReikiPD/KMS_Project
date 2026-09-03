@@ -16,19 +16,6 @@ WHERE NOT EXISTS (
     WHERE category_row.slug = source.slug
 );
 
-INSERT INTO work_units (name)
-SELECT source.name
-FROM (
-    VALUES
-        ('Pusat Data dan Teknologi Informasi Perhubungan'),
-        ('Pusat Pengembangan Sumber Daya Manusia Perhubungan'),
-        ('Direktorat Jenderal Perhubungan Darat')
-) AS source(name)
-WHERE NOT EXISTS (
-    SELECT 1 FROM work_units work_unit_row
-    WHERE work_unit_row.name = source.name
-);
-
 WITH demo_assets (title, slug, asset_type, content, is_featured, category_slug, work_unit_name) AS (
     VALUES
         (
@@ -47,7 +34,7 @@ WITH demo_assets (title, slug, asset_type, content, is_featured, category_slug, 
             'Materi contoh ini menjelaskan peran pemilik data, standar kualitas data, dan pemanfaatan data untuk pengambilan keputusan.',
             TRUE,
             'transformasi-digital',
-            'Pusat Data dan Teknologi Informasi Perhubungan'
+            'Direktorat Jenderal Integrasi Transportasi dan Multimoda'
         ),
         (
             'Contoh Panduan Berbagi Pengetahuan di Unit Kerja',
@@ -56,7 +43,7 @@ WITH demo_assets (title, slug, asset_type, content, is_featured, category_slug, 
             'Materi contoh ini memuat langkah identifikasi pengetahuan, dokumentasi, kurasi, dan penyebarluasan di lingkungan Kemenhub.',
             TRUE,
             'manajemen-sdm',
-            'Pusat Pengembangan Sumber Daya Manusia Perhubungan'
+            'Badan Pengembangan Sumber Daya Manusia (BPSDM) Perhubungan'
         ),
         (
             'Contoh Checklist Kesiapan Layanan Digital',
@@ -65,7 +52,7 @@ WITH demo_assets (title, slug, asset_type, content, is_featured, category_slug, 
             'Materi contoh ini membantu tim memastikan kesiapan proses bisnis, keamanan, aksesibilitas, dan dukungan pengguna.',
             FALSE,
             'transformasi-digital',
-            'Pusat Data dan Teknologi Informasi Perhubungan'
+            'Direktorat Jenderal Integrasi Transportasi dan Multimoda'
         ),
         (
             'Contoh Praktik Baik Pelatihan Berbasis Kebutuhan',
@@ -74,7 +61,7 @@ WITH demo_assets (title, slug, asset_type, content, is_featured, category_slug, 
             'Materi contoh ini dapat menjadi acuan diskusi komunitas belajar untuk menyusun program pengembangan kompetensi.',
             FALSE,
             'manajemen-sdm',
-            'Pusat Pengembangan Sumber Daya Manusia Perhubungan'
+            'Badan Pengembangan Sumber Daya Manusia (BPSDM) Perhubungan'
         ),
         (
             'Contoh Prosedur Komunikasi Risiko Keselamatan',
@@ -92,6 +79,7 @@ INSERT INTO knowledge_assets (
     asset_type,
     content,
     is_published,
+    publication_status,
     is_featured,
     author_id,
     category_id,
@@ -103,6 +91,7 @@ SELECT
     asset.asset_type,
     asset.content,
     TRUE,
+    'approved',
     asset.is_featured,
     (
         SELECT id FROM users

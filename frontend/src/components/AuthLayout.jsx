@@ -1,7 +1,7 @@
 import { ArrowLeft, BookOpenCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import transportHero from "../assets/knowledge/transport-hero.png";
-import ThemeToggleButton from "./ThemeToggleButton";
+import AccessibilityMenu from "./AccessibilityMenu";
 
 export default function AuthLayout({ children, eyebrow, title, description, formFooter }) {
   return (
@@ -11,7 +11,7 @@ export default function AuthLayout({ children, eyebrow, title, description, form
           <img className="kms-auth-showcase-image" src={transportHero} alt="Ilustrasi layanan transportasi Indonesia" decoding="async" />
           <div className="kms-auth-showcase-overlay" />
           <div className="kms-auth-showcase-content">
-            <Link to="/" className="kms-auth-brand rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Kembali ke beranda KMS Kemenhub"><span className="kms-auth-brand-mark"><BookOpenCheck size={21} /></span><span><strong>KMS Kemenhub</strong><small>Pusat Pengetahuan Perhubungan</small></span></Link>
+            <Link to="/" className="kms-auth-brand rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Kembali ke beranda KMS Kemenhub"><span className="kms-auth-brand-mark"><BookOpenCheck size={21} /></span><span><strong>KMS Kemenhub</strong><small>Knowledge Management System Kementerian Perhubungan</small></span></Link>
             <div className="kms-auth-showcase-copy">
               <p className="kms-auth-showcase-eyebrow">RUANG PENGETAHUAN TERHUBUNG</p>
               <h2 id="kms-auth-showcase-title">Pengetahuan yang menggerakkan layanan transportasi.</h2>
@@ -24,7 +24,7 @@ export default function AuthLayout({ children, eyebrow, title, description, form
           <div className="kms-auth-form-inner">
             <div className="kms-auth-form-toolbar">
               <Link to="/" className="kms-login-back"><ArrowLeft size={16} aria-hidden="true" />Kembali ke beranda</Link>
-              <ThemeToggleButton placement="left" />
+              <AccessibilityMenu placement="bottom-end" />
             </div>
             <div className="kms-auth-form-heading">
               <p className="kms-login-eyebrow">{eyebrow}</p>

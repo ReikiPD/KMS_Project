@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Alert, Avatar, Button, CardPlain, FileUpload, Modal, PasswordInput, Skeleton, TextField, useToast } from "@idds/react";
 import { Camera, KeyRound, Save, UserRound } from "lucide-react";
 import AdminPageHeader from "../../../../components/AdminPageHeader";
-import { apiFetch, avatarUrl, currentUser, inputValue } from "../../../../lib/api";
+import { apiFetch, avatarUrl, inputValue } from "../../../../lib/api";
+import { useAuth } from "../../../../contexts/AuthContext";
 
 const initials = (name) => (name || "KM").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
 export default function EditProfilePage() {
+  const { user, updateUser, setUser } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [profile, setProfile] = useState(null);
@@ -79,8 +81,7 @@ export default function EditProfilePage() {
       if (uploadedAvatar?.avatar_url && !updatedProfile.avatar_url) updatedProfile = { ...updatedProfile, avatar_url: uploadedAvatar.avatar_url };
       setProfile(updatedProfile);
       setAvatarFile(null);
-      localStorage.setItem("kms_user", JSON.stringify({ ...(currentUser() || {}), ...updatedProfile }));
-      window.dispatchEvent(new Event("kms-user-updated"));
+      updateUser(updatedProfile);
       toast({ title: uploadedAvatar ? "Profil dan avatar berhasil diperbarui" : "Profil berhasil diperbarui", state: "positive", position: "top-right" });
       navigate("/admin/profile");
     } catch (saveError) {
@@ -106,8 +107,10 @@ export default function EditProfilePage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Gagal memperbarui kata sandi");
       toast({ title: "Kata sandi berhasil diperbarui", state: "positive", position: "top-right" });
+      setUser(null);
       setPasswordModalOpen(false);
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      navigate("/login/pegawai", { replace: true, state: { message: "Kata sandi diperbarui. Silakan masuk kembali." } });
     } catch (saveError) {
       setPasswordError(saveError.message);
     } finally {
@@ -118,10 +121,10 @@ export default function EditProfilePage() {
   if (loading) return <div className="mx-auto w-full max-w-5xl p-4 md:p-6 xl:p-8"><Skeleton height="28px" width="32%" /><Skeleton height="460px" rounded="lg" className="mt-5" /></div>;
 
   return <div className="mx-auto w-full max-w-5xl p-4 md:p-6 xl:p-8">
-    <AdminPageHeader compact eyebrow={currentUser()?.role === "pimpinan" ? "Akun Pimpinan" : "Akun Pegawai"} title="Edit Profil" description="Perbarui informasi kontak dan foto. Kata sandi dikelola melalui dialog terpisah." breadcrumbs={[{ label: "Dasbor", href: "/admin/dashboard" }, { label: "Profil Saya", href: "/admin/profile" }, { label: "Edit Profil" }]} actions={<Button hierarchy="tertiary" onClick={() => navigate("/admin/profile")}>Batal</Button>} />
+    <AdminPageHeader compact eyebrow={user?.role === "pimpinan" ? "Akun Pimpinan" : "Akun Pegawai"} title="Edit Profil" description="Perbarui informasi kontak dan foto. Kata sandi dikelola melalui dialog terpisah." breadcrumbs={[{ label: "Dasbor", href: "/admin/dashboard" }, { label: "Profil Saya", href: "/admin/profile" }, { label: "Edit Profil" }]} actions={<Button hierarchy="tertiary" onClick={() => navigate("/admin/profile")}>Batal</Button>} />
     {error && <div className="mb-4"><Alert variant="critical" title="Perubahan belum tersimpan" message={error} /></div>}
     <form onSubmit={handleSubmit}>
-      <CardPlain className="kms-profile-surface p-5 md:p-6">
+      <CardPlain className="kms-profile-surface kms-profile-edit-card p-5 md:p-6">
         <section>
           <div className="flex items-center gap-3"><span className="kms-admin-metric-icon"><UserRound size={19} /></span><div><h2 className="text-base font-bold text-content-primary">Identitas pegawai</h2><p className="mt-0.5 text-sm text-content-secondary">Pastikan nama, email, dan unit kerja selalu mutakhir.</p></div></div>
           <div className="mt-5 grid gap-4 md:grid-cols-3"><TextField label="Nama lengkap" value={form.fullName} onChange={updateField("fullName")} placeholder="Masukkan nama lengkap" /><TextField label="Email" type="email" value={form.email} onChange={updateField("email")} placeholder="nama@kemenhub.go.id" /><TextField label="Unit / Departemen" value={form.department} onChange={updateField("department")} placeholder="Direktorat ..." /></div>
@@ -132,8 +135,8 @@ export default function EditProfilePage() {
         </section>
         <section className="mt-5 flex flex-col gap-3 border-t border-border-subtle pt-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-content-primary">Keamanan akun</p><p className="mt-0.5 text-xs text-content-secondary">Perbarui kata sandi tanpa meninggalkan halaman ini.</p></div><Button hierarchy="secondary" type="button" onClick={() => setPasswordModalOpen(true)} prefixIcon={<KeyRound size={16} />}>Ubah kata sandi</Button></section>
       </CardPlain>
-      <div className="mt-4 flex justify-end gap-3"><Button hierarchy="tertiary" type="button" onClick={() => navigate("/admin/profile")}>Batal</Button><Button hierarchy="primary" type="submit" disabled={saving} prefixIcon={<Save size={17} />}>{saving ? "Menyimpan..." : "Simpan perubahan"}</Button></div>
+      <div className="kms-page-form-actions mt-4 flex justify-end gap-3"><Button hierarchy="tertiary" type="button" onClick={() => navigate("/admin/profile")}>Batal</Button><Button hierarchy="primary" type="submit" disabled={saving} prefixIcon={<Save size={17} />}>{saving ? "Menyimpan..." : "Simpan perubahan"}</Button></div>
     </form>
-    <Modal open={passwordModalOpen} onClose={closePasswordModal} title="Ubah kata sandi" size="sm"><form className="space-y-4" onSubmit={handlePasswordSubmit}>{passwordError && <Alert variant="critical" message={passwordError} />}<PasswordInput label="Kata sandi saat ini" value={passwordForm.currentPassword} onChange={updatePasswordField("currentPassword")} /><PasswordInput label="Kata sandi baru" value={passwordForm.newPassword} onChange={updatePasswordField("newPassword")} helperText="Minimal 8 karakter." /><PasswordInput label="Konfirmasi kata sandi baru" value={passwordForm.confirmPassword} onChange={updatePasswordField("confirmPassword")} /><div className="flex justify-end gap-3 pt-2"><Button hierarchy="secondary" type="button" onClick={closePasswordModal}>Batal</Button><Button hierarchy="primary" type="submit" disabled={savingPassword}>{savingPassword ? "Menyimpan..." : "Simpan kata sandi"}</Button></div></form></Modal>
+    <Modal open={passwordModalOpen} onClose={closePasswordModal} title="Ubah kata sandi" size="sm"><form className="space-y-4" onSubmit={handlePasswordSubmit}>{passwordError && <Alert variant="critical" message={passwordError} />}<PasswordInput label="Kata sandi saat ini" value={passwordForm.currentPassword} onChange={updatePasswordField("currentPassword")} /><PasswordInput label="Kata sandi baru" value={passwordForm.newPassword} onChange={updatePasswordField("newPassword")} helperText="Minimal 8 karakter." /><PasswordInput label="Konfirmasi kata sandi baru" value={passwordForm.confirmPassword} onChange={updatePasswordField("confirmPassword")} /><div className="kms-modal-actions flex justify-end gap-3 pt-2"><Button hierarchy="secondary" type="button" onClick={closePasswordModal}>Batal</Button><Button hierarchy="primary" type="submit" disabled={savingPassword}>{savingPassword ? "Menyimpan..." : "Simpan kata sandi"}</Button></div></form></Modal>
   </div>;
 }

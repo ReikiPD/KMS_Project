@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { MessageCircle, Pencil, Reply, Send, Trash2 } from "lucide-react";
 import { Alert, Avatar, Button, Card, Skeleton, TextArea, useToast } from "@idds/react";
-import { apiFetch, avatarUrl, currentUser } from "../lib/api";
+import { apiFetch, avatarUrl } from "../lib/api";
+import { useAuth } from "../contexts/AuthContext";
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -55,7 +56,7 @@ function CommentNode({ comment, depth, user, canWriteComment, actionId, replying
   const nodeStyle = depth ? { marginLeft: `${Math.min(depth, 4) * 12}px` } : undefined;
 
   return (
-    <li className={depth ? "mt-4 border-l border-stroke-secondary pl-3" : ""} style={nodeStyle}>
+    <li className={`kms-comment-node ${depth ? "mt-4 border-l border-stroke-secondary pl-3" : ""}`} style={nodeStyle}>
       <div className="rounded-xl bg-surface-secondary p-4">
         {comment.is_deleted ? (
           <p className="text-sm italic text-content-secondary">Komentar telah dihapus.</p>
@@ -128,6 +129,7 @@ function CommentNode({ comment, depth, user, canWriteComment, actionId, replying
 
 export default function CommentsSection({ assetId, canModerate = false }) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [comments, setComments] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -135,7 +137,6 @@ export default function CommentsSection({ assetId, canModerate = false }) {
   const [actionId, setActionId] = useState("");
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const user = currentUser();
   const canWriteComment = ["user", "pegawai"].includes(user?.role);
 
   const loadComments = useCallback(async () => {

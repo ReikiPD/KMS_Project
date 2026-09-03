@@ -1,4 +1,5 @@
 const pool = require("../database/db");
+const { resolveActivityTarget } = require("../services/activityTargetService");
 
 const getNotificationId = (value) => {
   const id = Number.parseInt(value, 10);
@@ -13,17 +14,17 @@ const getNotifications = async (req, res) => {
   const offset = (page - 1) * limit;
   const state = req.query.state === "unread" ? "unread" : "all";
   const search = typeof req.query.q === "string" ? req.query.q.trim() : "";
-  const values = [req.user.id];
-  const filters = ["n.recipient_id = $1"];
-  if (state === "unread") filters.push("n.is_read = FALSE");
-  if (search) {
-    values.push(`%${search}%`);
-    const parameter = `$${values.length}`;
-    filters.push(`(COALESCE(a.title, '') ILIKE ${parameter} OR COALESCE(u.full_name, '') ILIKE ${parameter})`);
-  }
-  const whereClause = filters.join(" AND ");
-
   try {
+    const target = await resolveActivityTarget(req);
+    const values = [target.id];
+    const filters = ["n.recipient_id = $1"];
+    if (state === "unread") filters.push("n.is_read = FALSE");
+    if (search) {
+      values.push(`%${search}%`);
+      const parameter = `$${values.length}`;
+      filters.push(`(COALESCE(a.title, '') ILIKE ${parameter} OR COALESCE(u.full_name, '') ILIKE ${parameter})`);
+    }
+    const whereClause = filters.join(" AND ");
     const [notificationsResult, unreadResult, totalResult] = await Promise.all([
       pool.query(
         `SELECT
@@ -34,6 +35,8 @@ const getNotifications = async (req, res) => {
            n.is_read,
            n.created_at,
            a.title AS asset_title,
+           a.public_id AS asset_public_id,
+           a.slug AS asset_slug,
            u.full_name AS actor_name,
            u.avatar_url AS actor_avatar_url
          FROM notifications n
@@ -46,7 +49,7 @@ const getNotifications = async (req, res) => {
       ),
       pool.query(
         "SELECT COUNT(*)::INTEGER AS count FROM notifications WHERE recipient_id = $1 AND is_read = FALSE",
-        [req.user.id],
+        [target.id],
       ),
       pool.query(
         `SELECT COUNT(*)::INTEGER AS count
@@ -62,9 +65,11 @@ const getNotifications = async (req, res) => {
     res.json({
       data: notificationsResult.rows,
       unreadCount: unreadResult.rows[0].count,
+      target: { public_id: target.public_id, full_name: target.fullName, role: target.role },
       pagination: { currentPage: page, limit, totalItems, totalPages: Math.ceil(totalItems / limit) },
     });
   } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error("Error fetching notifications:", error);
     res.status(500).json({ error: "Gagal memuat notifikasi" });
   }

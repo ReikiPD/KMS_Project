@@ -31,6 +31,7 @@ pnpm-debug.log*
 
 # Database exports and local backups
 backups/
+deploy/artifacts/
 *.backup
 *.dump
 *.sql.gz
@@ -44,8 +45,14 @@ temp/
 
 # Local certificates and private keys
 *.key
+*.pem
+*.csr
 *.p12
 *.pfx
+*.agekey
+*.pgpass
+*.age
+*.tar.gz
 
 # Editors and operating systems
 .vscode/*

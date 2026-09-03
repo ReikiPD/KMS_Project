@@ -38,14 +38,14 @@ export function AssetPublicationReview({ isPublished, mode = "create" }) {
   return isPublished ? (
     <Alert
       variant="caution"
-      title="Periksa kembali sebelum dipublikasikan"
-      message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar serta sesuai. Setelah ${mode === "edit" ? "perubahan disimpan" : "diterbitkan"}, aset akan langsung dapat dilihat oleh publik.`}
+      title="Periksa kembali sebelum diajukan"
+      message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, aset menunggu keputusan verifikator dan belum tampil di publik.`}
     />
   ) : (
     <Alert
       variant="info"
       title="Aset akan disimpan sebagai draf"
-      message="Draf belum dapat dilihat publik. Anda masih dapat melengkapi atau memperbaikinya sebelum diterbitkan."
+      message="Draf belum dapat dilihat publik. Anda masih dapat melengkapi atau memperbaikinya sebelum diajukan kepada verifikator."
     />
   );
 }
@@ -53,12 +53,12 @@ export function AssetPublicationReview({ isPublished, mode = "create" }) {
 export function AssetPublishConfirmationModal({ open, onClose, onConfirm, loading = false, quality, mode = "create" }) {
   const missingItems = quality?.checks?.filter(([, complete]) => !complete).map(([label]) => label) || [];
   return (
-    <Modal open={open} onClose={loading ? undefined : onClose} title="Publikasikan aset?" size="sm">
+    <Modal open={open} onClose={loading ? undefined : onClose} title="Ajukan aset untuk diverifikasi?" size="sm">
       <div className="space-y-5">
         <Alert
           variant="caution"
           title="Periksa kembali data aset"
-          message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar. Setelah ${mode === "edit" ? "perubahan dipublikasikan" : "aset dipublikasikan"}, konten langsung dapat dilihat oleh pengguna.`}
+          message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, verifikator dalam cakupan Unit Kerja akan menilai kelayakannya.`}
         />
         {missingItems.length > 0 && (
           <p className="rounded-lg bg-page-secondary px-4 py-3 text-sm text-content-secondary">
@@ -67,7 +67,7 @@ export function AssetPublishConfirmationModal({ open, onClose, onConfirm, loadin
         )}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button type="button" hierarchy="secondary" onClick={onClose} disabled={loading}>Periksa lagi</Button>
-          <Button type="button" hierarchy="primary" onClick={onConfirm} disabled={loading} prefixIcon={loading ? <Spinner size={18} borderWidth="medium" color="inherit" spinnerOnly /> : undefined}>{loading ? "Mempublikasikan..." : "Ya, publikasikan"}</Button>
+          <Button type="button" hierarchy="primary" onClick={onConfirm} disabled={loading} prefixIcon={loading ? <Spinner size={18} borderWidth="medium" color="inherit" spinnerOnly /> : undefined}>{loading ? "Mengajukan..." : "Ya, ajukan"}</Button>
         </div>
       </div>
     </Modal>
