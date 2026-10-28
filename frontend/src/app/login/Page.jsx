@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Building2, LogIn, Mail } from "lucide-react";
+import { Building2, LockKeyhole, LogIn, Mail } from "lucide-react";
 import { Alert, Button, PasswordInput, Spinner, TextField, useToast } from "@idds/react";
-import AuthLayout from "../../components/AuthLayout";
+import AuthLayout from "../../layouts/AuthLayout";
 import { apiFetch } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { firstAllowedBackofficePath } from "../../lib/permissions";
@@ -52,8 +52,8 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      eyebrow="AKSES AKUN"
-      title={isStaffLogin ? "Akses Ruang Kedinasan" : "Masuk ke KMS Kemenhub"}
+      eyebrow={isStaffLogin ? "AKUN KEDINASAN" : "SELAMAT DATANG KEMBALI"}
+      title={isStaffLogin ? "Masuk ke ruang kedinasan" : "Masuk ke KMS Kemenhub"}
       description={isStaffLogin ? "Masuk menggunakan akun kedinasan yang dikelola administrator KMS." : "Masuk untuk membaca dan berpartisipasi dalam diskusi pengetahuan."}
     >
       {location.state?.registrationSuccess && <Alert className="mb-4" variant="success" title="Pendaftaran berhasil" message="Silakan masuk menggunakan akun baru Anda." />}
@@ -61,10 +61,10 @@ export default function LoginPage() {
 
       {isStaffLogin && <div className="kms-auth-staff-label mb-4"><Building2 size={16} /><span>Portal Pegawai, Pimpinan, dan Admin</span></div>}
 
-      <form onSubmit={handleLogin} className="kms-auth-login-form">
-        <TextField size="sm" label="Alamat email" placeholder={isStaffLogin ? "nama@kemenhub.go.id" : "nama@email.com"} type="email" autoComplete="email" value={email} onChange={setEmail} prefixIcon={<Mail size={16} />} disabled={sessionLoading || loading} required />
-        <PasswordInput size="sm" label="Kata sandi" placeholder="Masukkan kata sandi" autoComplete="current-password" value={password} onChange={setPassword} disabled={sessionLoading || loading} required />
-        <Button type="submit" hierarchy="primary" size="md" className="kms-auth-submit w-full justify-center" disabled={sessionLoading || loading} prefixIcon={(sessionLoading || loading) ? <Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly /> : <LogIn size={16} />}>{sessionLoading ? "Memeriksa sesi..." : loading ? "Memproses..." : "Masuk"}</Button>
+      <form onSubmit={handleLogin} className="kms-auth-login-form" aria-labelledby="kms-auth-title" aria-busy={sessionLoading || loading}>
+        <TextField size="md" label="Alamat email" placeholder={isStaffLogin ? "nama@kemenhub.go.id" : "nama@email.com"} type="email" autoComplete="email" value={email} onChange={setEmail} prefixIcon={<Mail size={18} />} disabled={sessionLoading || loading} required />
+        <PasswordInput size="md" label="Kata sandi" placeholder="Masukkan kata sandi" autoComplete="current-password" value={password} onChange={setPassword} prefixIcon={<LockKeyhole size={18} />} disabled={sessionLoading || loading} required />
+        <Button type="submit" hierarchy="primary" size="xl" className="kms-auth-submit w-full justify-center" disabled={sessionLoading || loading} prefixIcon={(sessionLoading || loading) ? <Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly /> : <LogIn size={18} />}>{sessionLoading ? "Memeriksa sesi..." : loading ? "Memproses..." : "Masuk"}</Button>
       </form>
 
       {isStaffLogin && <p className="kms-auth-note">Akses ini khusus akun kedinasan yang diterbitkan atau dikelola administrator KMS Kemenhub.</p>}

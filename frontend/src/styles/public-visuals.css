@@ -1,0 +1,26 @@
+/* Public artwork only: IDDS controls and backoffice styling are untouched. */
+.kms-public-visual { display: block; max-width: 100%; height: auto; }
+.kms-public .kms-hero-visual { aspect-ratio: 720 / 560; animation: none; transition: border-color var(--kms-motion-base) var(--kms-ease), box-shadow var(--kms-motion-base) var(--kms-ease); }
+.kms-public .kms-hero-visual img { width: 100%; height: 100%; min-height: 0; max-height: none; object-fit: contain; animation: none; }
+.kms-public .kms-hero-visual::after { display: none; }
+.kms-public .kms-hero-visual:hover { border-color: var(--kms-gold-500); box-shadow: var(--kms-shadow-md); }
+.kms-public .kms-hero { isolation: isolate; }
+.kms-public .kms-hero > .kms-public-ornament { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .65; z-index: -1; }
+.kms-public .kms-public-ornament { pointer-events: none; user-select: none; }
+.kms-public .kms-detail-hero > .kms-public-ornament { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: right center; z-index: 0; }
+.kms-public .kms-detail-hero::after { display: none; }
+.kms-public .kms-footer { position: relative; isolation: isolate; overflow: hidden; }
+.kms-public .kms-footer > .kms-public-ornament { position: absolute; inset: auto 0 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; opacity: .7; }
+.kms-public .kms-empty-illustration { width: 13rem; aspect-ratio: 300 / 190; margin: 0 auto .5rem; object-fit: contain; }
+.kms-public .kms-status-illustration { width: 18rem; aspect-ratio: 300 / 190; margin: 0 auto 1rem; }
+.kms-public .kms-asset-card .ina-card__media { aspect-ratio: 16 / 9; overflow: hidden; background: var(--kms-sky-50); }
+.kms-public .kms-asset-card .ina-card__media img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 640px) {
+  .kms-public .kms-hero-visual { width: min(100%, 28rem); margin-inline: auto; }
+  .kms-public .kms-empty-illustration { width: 11rem; }
+  .kms-public .kms-detail-hero > .kms-public-ornament { opacity: .55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kms-public .kms-hero-visual { transition: none; }
+}
+[data-reduce-motion="true"] .kms-public .kms-hero-visual { transition: none; }

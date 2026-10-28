@@ -5,8 +5,6 @@ import {
   Badge,
   Button,
   CardPlain,
-  Chip,
-  DatePicker,
   SelectDropdown,
   Skeleton,
 } from "@idds/react";
@@ -21,6 +19,10 @@ import {
   UsersRound,
 } from "lucide-react";
 import AdminPageHeader from "../../../../components/AdminPageHeader";
+import AnalyticsPeriodToolbar from "../../../../components/AnalyticsPeriodToolbar";
+import { ANALYTICS_PERIOD_OPTIONS as PERIOD_OPTIONS } from "../../../../lib/analyticsPeriods";
+import WorkUnitLogo from "../../../../components/WorkUnitLogo";
+import { workUnitLogoIdentity } from "../../../../lib/workUnits";
 import MediaCompositionChart from "../../../../components/MediaCompositionChart";
 import { apiFetch } from "../../../../lib/api";
 import { adminAssetPath } from "../../../../lib/routes";
@@ -28,14 +30,6 @@ import { useAuth } from "../../../../contexts/AuthContext";
 import useAdminView from "../../../../hooks/useAdminView";
 import { hasPermission } from "../../../../lib/permissions";
 
-const PERIOD_OPTIONS = [
-  { label: "Sepanjang waktu", value: "all" },
-  { label: "7 hari", value: "7d" },
-  { label: "30 hari", value: "30d" },
-  { label: "90 hari", value: "90d" },
-  { label: "Tahun berjalan", value: "year" },
-  { label: "Rentang khusus", value: "custom" },
-];
 const VALID_PERIODS = new Set(PERIOD_OPTIONS.map((option) => option.value));
 const formatNumber = (value) => new Intl.NumberFormat("id-ID").format(Number(value) || 0);
 const formatDate = (value) => value
@@ -77,7 +71,7 @@ export default function WorkUnitAnalyticsPage() {
   const startDate = searchParams.get("startDate") || "";
   const endDate = searchParams.get("endDate") || "";
   const [customDates, setCustomDates] = useState([startDate || isoOffset(-29), endDate || isoOffset(0)]);
-  const [customOpen, setCustomOpen] = useState(period === "custom");
+  const [periodError, setPeriodError] = useState("");
   const [scopeUnits, setScopeUnits] = useState([]);
   const [scopeLoading, setScopeLoading] = useState(true);
   const [data, setData] = useState(null);
@@ -85,7 +79,7 @@ export default function WorkUnitAnalyticsPage() {
   const [error, setError] = useState("");
 
   const updatePeriod = useCallback((nextPeriod) => {
-    setCustomOpen(nextPeriod === "custom");
+    setPeriodError("");
     if (nextPeriod === "custom") return;
     const next = new URLSearchParams(searchParams);
     if (nextPeriod === "all") next.delete("period"); else next.set("period", nextPeriod);
@@ -96,9 +90,16 @@ export default function WorkUnitAnalyticsPage() {
 
   const applyCustom = () => {
     const [start, end] = customDates;
-    if (!start || !end || start > end) { setError("Pilih rentang tanggal yang valid."); return; }
-    setSearchParams({ period: "custom", startDate: start, endDate: end });
+    if (!start || !end || start > end) { setPeriodError("Pilih rentang tanggal yang valid."); return; }
+    setPeriodError("");
+    const next = new URLSearchParams(searchParams);
+    next.set("period", "custom"); next.set("startDate", start); next.set("endDate", end);
+    setSearchParams(next);
   };
+
+  useEffect(() => {
+    if (period === "custom") setCustomDates([startDate || isoOffset(-29), endDate || isoOffset(0)]);
+  }, [period, startDate, endDate]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -164,6 +165,7 @@ export default function WorkUnitAnalyticsPage() {
     <AdminPageHeader
       eyebrow="Analitik Unit Kerja"
       title={data?.unit?.name || "Dashboard Unit Kerja"}
+      identity={data?.unit && <WorkUnitLogo unit={workUnitLogoIdentity(data.unit, scopeUnits)} className="kms-admin-unit-logo kms-admin-unit-logo--heading" />}
       description="Pantau penerbit, jumlah aset, jangkauan, dan kontribusi unit ini beserta seluruh unit turunannya."
       breadcrumbs={[{ label: "Dasbor", href: "/admin/dashboard" }, { label: "Unit Kerja", href: "/admin/work-units" }, { label: data?.unit?.alias || "Analitik" }]}
       actions={<Button hierarchy="secondary" prefixIcon={<ArrowLeft size={16} />} onClick={() => navigate(canOpenWorkUnits ? "/admin/work-units" : "/admin/dashboard")}>{canOpenWorkUnits ? "Kembali ke Unit Kerja" : "Kembali ke Dasbor"}</Button>}
@@ -183,7 +185,12 @@ export default function WorkUnitAnalyticsPage() {
               }}
               placeholder={scopeOptions.length ? "Pilih Unit Kerja" : "Tidak ada Unit Kerja yang diizinkan"}
               searchable
+              renderOptionLabel={option => {
+                const unit = scopeUnits.find(unit => unit.public_id === option.value);
+                return <span className="kms-admin-unit-option"><WorkUnitLogo unit={workUnitLogoIdentity(unit, scopeUnits)} className="kms-admin-unit-logo" /><span>{option.label}</span></span>;
+              }}
               indicator="check"
+              mandatorySelected
               disabled={!scopeOptions.length}
             />}
         <div className="rounded-lg border border-border-subtle bg-page-secondary px-4 py-3">
@@ -193,10 +200,7 @@ export default function WorkUnitAnalyticsPage() {
       </div>
     </CardPlain>
 
-    <CardPlain className="kms-admin-surface mb-5 p-4 md:p-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div><p className="text-sm font-bold text-content-primary">Periode analitik</p><p className="mt-1 text-xs text-content-secondary">Mempengaruhi seluruh angka dan visualisasi pada halaman ini.</p></div><Chip options={PERIOD_OPTIONS} selected={customOpen ? "custom" : period} onSelect={updatePeriod} size="small" variant="outline" /></div>
-      {customOpen && <div className="mt-4 grid gap-4 border-t border-border-subtle pt-4 md:grid-cols-[minmax(0,1fr)_auto]"><DatePicker mode="range" selected={customDates} onChange={setCustomDates} dateFormat="yyyy-MM-dd" label="Rentang tanggal" disabledFutureDate triggerWidth="100%" /><div className="flex items-end"><Button hierarchy="primary" onClick={applyCustom}>Terapkan</Button></div></div>}
-    </CardPlain>
+    <AnalyticsPeriodToolbar period={period} customDates={customDates} onPeriodChange={updatePeriod} onDatesChange={setCustomDates} onApply={applyCustom} error={periodError} />
 
     {error && <div className="mb-5"><Alert variant="critical" title="Analitik belum tersedia" message={error} /></div>}
     {loading ? <div className="space-y-5"><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1, 2, 3, 4, 5, 6].map((item) => <Skeleton key={item} height="135px" rounded="lg" />)}</div><Skeleton height="310px" rounded="lg" /></div> : data && <div className="space-y-5">

@@ -10,6 +10,7 @@ const allowedByField = {
   thumbnail: new Set(["image/jpeg", "image/png", "image/webp"]),
   avatar: new Set(["image/jpeg", "image/png", "image/webp"]),
   image: new Set(["image/jpeg", "image/png", "image/webp"]),
+  logo: new Set(["image/jpeg", "image/png", "image/webp"]),
   file: new Set(["application/pdf", "video/mp4", "video/webm", "video/ogg", "application/ogg"]),
 };
 
@@ -29,7 +30,7 @@ const validateUploadSignature = async (req, res, next) => {
     for (const file of files) {
       const detected = await inspect(file.path);
       const allowedTypes = allowedByField[file.fieldname] || new Set();
-      if (!detected || !allowedTypes.has(detected.mime)) {
+      if (!detected || !allowedTypes.has(detected.mime) || (file.fieldname === "logo" && detected.mime !== file.mimetype)) {
         await removeFiles(files);
         return res.status(400).json({ error: "Isi file tidak sesuai dengan format unggahan yang diizinkan" });
       }

@@ -1,167 +1,157 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Alert, Badge, Button, CardPlain, Modal, SelectDropdown, Skeleton, TextArea, TextField, useToast } from "@idds/react";
-import { CheckCircle2, Clock3, ExternalLink, FileCheck2, FileText, RotateCcw, Search, Video, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import "../../../styles/review-governance.css";
+import ResponsiveTable from "../../../components/ResponsiveTable";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Alert, Badge, Button, CardPlain, SelectDropdown, Skeleton, TextField } from "@idds/react";
+import { Building2, ChevronDown, FileCheck2, FileText, Search, SlidersHorizontal, Video, X } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
 import EmptyState from "../../../components/EmptyState";
 import { useAuth } from "../../../contexts/AuthContext";
 import useAdminView from "../../../hooks/useAdminView";
-import { apiFetch, inputValue, uploadUrl } from "../../../lib/api";
-import { hasPermission } from "../../../lib/permissions";
+import { apiFetch, inputValue } from "../../../lib/api";
+import { canDecideAssetVerification } from "../../../lib/permissions";
 import { publicationStatus, publicationStatusOptions } from "../../../lib/publicationStatus";
 
-const formatDateTime = (value) => value
-  ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
-  : "-";
-
-const unitLabel = (asset) => [
-  asset.parent_work_unit_alias || asset.parent_work_unit_name,
-  asset.work_unit_alias || asset.work_unit_name,
-].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(" — ") || "Unit kerja belum diisi";
+const EMPTY_FILTERS = { echelon: "all", assetType: "all", wait: "all", assigned: "all", dateFrom: "", dateTo: "" };
+const PRIORITY = {
+  new: { label: "Baru", variant: "info" },
+  due: { label: "Segera diperiksa", variant: "warning" },
+  overdue: { label: "Terlambat", variant: "error" },
+};
+const FILTER_OPTIONS = {
+  echelon: [{ value: "all", label: "Semua eselon" }, ...[1, 2, 3].map((value) => ({ value: String(value), label: `Eselon ${value}` }))],
+  assetType: [{ value: "all", label: "Semua tipe" }, { value: "document", label: "Dokumen PDF" }, { value: "video", label: "Video" }],
+  wait: [{ value: "all", label: "Semua waktu tunggu" }, { value: "new", label: "Baru (< 24 jam)" }, { value: "due", label: "Segera diperiksa (1–3 hari)" }, { value: "overdue", label: "Terlambat (> 3 hari)" }],
+  assigned: [{ value: "all", label: "Semua penugasan" }, { value: "mine", label: "Ditugaskan kepada saya" }, { value: "unassigned", label: "Belum ditugaskan" }],
+};
+const unitLabel = (asset) => [...new Set([asset.parent_work_unit_alias || asset.parent_work_unit_name, asset.work_unit_alias || asset.work_unit_name].filter(Boolean))].join(" — ") || "Unit kerja belum diisi";
+const dateLabel = (value) => value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value)) : "-";
 
 export default function AssetVerificationPage() {
-  const [searchParams] = useSearchParams();
-  const notificationQuery = searchParams.get("q") || "";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const patchParams = (changes) => setSearchParams((current) => {
+    const next = new URLSearchParams(current);
+    Object.entries(changes).forEach(([key, value]) => { if (value && value !== "all") next.set(key, String(value)); else next.delete(key); });
+    return next;
+  });
   const { user: authenticatedUser } = useAuth();
   const { accessUser, withEmployeeContext } = useAdminView();
   const user = accessUser || authenticatedUser || {};
-  const canDecide = hasPermission(user, "asset_verification", "edit");
-  const { toast } = useToast();
+  const subjectKey = `${user.public_id || user.id || user.email || ""}:${user.role || ""}`;
+  const canDecide = canDecideAssetVerification(user);
   const [items, setItems] = useState([]);
   const [scope, setScope] = useState(null);
-  const [status, setStatus] = useState("pending_review");
-  const [query, setQuery] = useState(notificationQuery);
-  const [appliedQuery, setAppliedQuery] = useState(notificationQuery);
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ currentPage: 1, totalItems: 0, totalPages: 0 });
+  const status = searchParams.get("status") || "pending_review";
+  const appliedQuery = searchParams.get("q") || "";
+  const [query, setQuery] = useState(appliedQuery);
+  const filters = useMemo(() => Object.fromEntries(Object.entries(EMPTY_FILTERS).map(([key, fallback]) => [key, searchParams.get(key) || fallback])), [searchParams]);
+  const setStatus = (value) => patchParams({ status: value, page: 1 });
+  const setFilters = (value) => patchParams({ ...value, page: 1 });
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterReviewers, setFilterReviewers] = useState([]);
+  const [filterReviewersError, setFilterReviewersError] = useState("");
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const setPage = (value) => patchParams({ page: typeof value === "function" ? value(page) : value });
+  const [pagination, setPagination] = useState({ totalItems: 0, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState(null);
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState("");
-  const [decisionError, setDecisionError] = useState("");
+  const loadSequence = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async (signal) => {
+    const sequence = ++loadSequence.current;
+    setLoading(true); setError("");
     try {
       const params = new URLSearchParams({ status, page: String(page), limit: "10" });
       if (appliedQuery) params.set("q", appliedQuery);
-      const response = await apiFetch(`/api/assets/admin/publication-reviews?${params}`, { auth: true });
+      Object.entries(filters).forEach(([key, value]) => { if (value && value !== "all") params.set(key, value); });
+      const response = await apiFetch(`/api/assets/admin/publication-reviews?${params}`, { auth: true, signal });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || result.error || "Gagal memuat antrean verifikasi");
-      setItems(result.data || []);
-      setScope(result.scope || null);
-      setPagination(result.pagination || { currentPage: page, totalItems: 0, totalPages: 0 });
-    } catch (loadError) {
-      setError(loadError.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [appliedQuery, page, status]);
+      if (sequence !== loadSequence.current || signal?.aborted) return;
+      setItems(result.data || []); setScope(result.scope || null);
+      setPagination(result.pagination || { totalItems: 0, totalPages: 0 });
+    } catch (loadError) { if (sequence === loadSequence.current && !signal?.aborted) setError(loadError.message); }
+    finally { if (sequence === loadSequence.current && !signal?.aborted) setLoading(false); }
+  }, [appliedQuery, filters, page, status]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [status]);
+  useEffect(() => { const controller = new AbortController(); load(controller.signal); return () => controller.abort(); }, [load, subjectKey]);
+  useEffect(() => { setQuery(appliedQuery); }, [appliedQuery]);
   useEffect(() => {
-    setQuery(notificationQuery);
-    setAppliedQuery(notificationQuery);
-    setPage(1);
-  }, [notificationQuery]);
+    if (!filtersOpen) return undefined;
+    const controller = new AbortController();
+    const loadReviewers = async () => {
+      setFilterReviewers([]); setFilterReviewersError("");
+      try {
+        const response = await apiFetch("/api/assets/admin/publication-reviewers", { auth: true, signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Pilihan nama verifikator belum dapat dimuat.");
+        if (!controller.signal.aborted) setFilterReviewers(result.data || []);
+      } catch (error) { if (!controller.signal.aborted) setFilterReviewersError(error.message); }
+    };
+    loadReviewers();
+    return () => controller.abort();
+  }, [filtersOpen, subjectKey]);
 
-  const statusMeta = useMemo(() => publicationStatus({ publication_status: status }), [status]);
+  const changeFilter = (key, value) => patchParams({ [key]: value, page: 1 });
+  const activeFilters = Object.entries(filters).filter(([, value]) => value && value !== "all");
+  const filterOptions = { ...FILTER_OPTIONS, assigned: [...FILTER_OPTIONS.assigned, ...filterReviewers.map((item) => ({ value: item.public_id, label: item.full_name }))] };
+  const labelForFilter = (key, value) => filterOptions[key]?.find((item) => item.value === value)?.label
+    || (key === "assigned" ? "Verifikator dipilih" : `${key === "dateFrom" ? "Mulai" : "Sampai"} ${dateLabel(value)}`);
+  const search = (event) => { event.preventDefault(); patchParams({ q: query.trim(), page: 1 }); };
   const openReview = (asset) => {
-    setSelected(asset);
-    setNote(asset.review_note || "");
-    setDecisionError("");
+    sessionStorage.setItem(`kms.review-scroll:${subjectKey}:${location.search}`, String(document.getElementById("kms-main-content")?.scrollTop || 0));
+    navigate(`/admin/asset-verification/${encodeURIComponent(asset.public_id || asset.slug)}`, { state: { reviewOrigin: true } });
   };
-  const closeReview = () => {
-    if (saving) return;
-    setSelected(null);
-    setNote("");
-    setDecisionError("");
-  };
-  const decide = async (decision) => {
-    const cleanNote = note.trim();
-    if (cleanNote.length < 5) {
-      setDecisionError("Keterangan keputusan wajib diisi minimal 5 karakter.");
-      return;
-    }
-    setSaving(decision);
-    setDecisionError("");
-    try {
-      const reference = selected.slug || selected.public_id;
-      const response = await apiFetch(`/api/assets/admin/publication-reviews/${encodeURIComponent(reference)}`, {
-        method: "PATCH",
-        auth: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision, note: cleanNote }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || result.error || "Keputusan belum dapat disimpan");
-      toast({ state: "positive", title: "Keputusan tersimpan", description: result.message, duration: 3500 });
-      setSelected(null);
-      setNote("");
-      await load();
-    } catch (saveError) {
-      setDecisionError(saveError.message);
-    } finally {
-      setSaving("");
-    }
-  };
+  useEffect(() => {
+    if (loading) return;
+    const key = `kms.review-scroll:${subjectKey}:${location.search}`;
+    const saved = sessionStorage.getItem(key);
+    if (saved !== null) { document.getElementById("kms-main-content")?.scrollTo({ top: Number(saved), behavior: "auto" }); sessionStorage.removeItem(key); }
+  }, [loading, subjectKey, location.search]);
 
-  return (
-    <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
-      <AdminPageHeader
-        eyebrow="Manajemen Aset"
-        title="Verifikasi Aset"
-        description="Nilai kelayakan publikasi sesuai Unit Kerja Anda dan seluruh unit turunannya."
-        breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Verifikasi Aset" }]}
-      />
+  return <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
+    <AdminPageHeader eyebrow="Manajemen Aset" title="Verifikasi Aset" description="Periksa dan putuskan kelayakan aset dalam cakupan unit kerja Anda."
+      breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Verifikasi Aset" }]} />
+    <CardPlain className="kms-admin-surface">
+      <div className="kms-review-scope"><Building2 size={16} /><span>{scope?.type === "all" ? "Seluruh unit kerja" : scope?.work_unit_name || "Unit kerja akun dan turunannya"}</span><small>Pengajuan tertua diprioritaskan</small></div>
+      <form className="kms-review-toolbar" onSubmit={search}>
+        <div className="kms-review-search"><TextField label="Cari pengajuan" value={query} onChange={(value) => setQuery(inputValue(value))} placeholder="Judul, pengaju, atau unit kerja" showClearButton /></div>
+        <SelectDropdown label="Status pengajuan" options={publicationStatusOptions} selected={status} onSelect={setStatus} searchable={false} showPreviewValue={false} mandatorySelected indicator="check" />
+        <div className="kms-review-toolbar-actions"><Button type="submit" hierarchy="primary" prefixIcon={<Search size={16} />}>Cari</Button><Button type="button" hierarchy="secondary" prefixIcon={<SlidersHorizontal size={16} />} suffixIcon={<ChevronDown size={15} className={filtersOpen ? "rotate-180" : ""} />} onClick={() => setFiltersOpen((value) => !value)} aria-expanded={filtersOpen} aria-controls="verification-filters">Filter{activeFilters.length ? ` (${activeFilters.length})` : ""}</Button></div>
+      </form>
+      {filtersOpen && <div id="verification-filters" className="kms-review-filter-panel">
+        {Object.entries({ echelon: "Tingkat organisasi", assetType: "Tipe aset", wait: "Lama menunggu", assigned: "Penugasan" }).map(([key, label]) => <SelectDropdown key={key} label={label} options={filterOptions[key]} selected={filters[key]} onSelect={(value) => changeFilter(key, String(value))} searchable={key === "assigned"} showPreviewValue={false} mandatorySelected />)}
+        <label className="kms-review-date-filter">Diajukan mulai<input type="date" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={(event) => changeFilter("dateFrom", event.target.value)} /></label>
+        <label className="kms-review-date-filter">Diajukan sampai<input type="date" value={filters.dateTo} min={filters.dateFrom || undefined} onChange={(event) => changeFilter("dateTo", event.target.value)} /></label>
+        {filterReviewersError && <p className="kms-review-inline-error" role="alert">{filterReviewersError}</p>}
+      </div>}
+      {activeFilters.length > 0 && <div className="kms-review-active-filters">
+        {activeFilters.map(([key, value]) => <button key={key} type="button" onClick={() => changeFilter(key, EMPTY_FILTERS[key])} aria-label={`Hapus filter ${labelForFilter(key, value)}`}>{labelForFilter(key, value)}<X size={13} /></button>)}
+        <Button hierarchy="link" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>Reset filter</Button>
+      </div>}
 
-      <Alert
-        variant="info"
-        title={scope?.type === "all" ? "Cakupan seluruh Unit Kerja" : `Cakupan ${scope?.work_unit_name || "Unit Kerja akun"}`}
-        message="Batas antrean diperiksa kembali oleh server. Pengaju tidak dapat memverifikasi asetnya sendiri, dan setiap keputusan dicatat pada riwayat audit."
-      />
-
-      <CardPlain className="kms-admin-surface mt-5 overflow-hidden">
-        <div className="grid gap-3 border-b border-border-subtle p-4 md:grid-cols-[15rem_minmax(0,1fr)_auto] md:items-end md:p-5">
-          <SelectDropdown label="Status pengajuan" options={publicationStatusOptions} selected={status} onSelect={setStatus} indicator="check" />
-          <TextField label="Cari pengajuan" value={query} onChange={(value) => setQuery(inputValue(value))} placeholder="Judul, pengaju, atau unit kerja" showClearButton />
-          <Button hierarchy="secondary" prefixIcon={<Search size={16} />} onClick={() => { setAppliedQuery(query.trim()); setPage(1); }}>Cari</Button>
+      {error ? <div className="p-5"><Alert variant="critical" title="Antrean tidak dapat dimuat" message={error} /></div> : loading ? <div className="space-y-3 p-5">{[1, 2, 3, 4].map((row) => <Skeleton key={row} height="70px" />)}</div> : items.length === 0 ? <EmptyState icon={FileCheck2} title={`Tidak ada aset berstatus ${publicationStatus({ publication_status: status }).label.toLowerCase()}`} description="Pengajuan yang sesuai cakupan organisasi dan filter akan tampil di sini." /> : (
+        <div className="overflow-x-auto">
+          <ResponsiveTable label="Antrean verifikasi" minTableWidth={900} summary={[3]} className="kms-admin-native-table kms-review-responsive min-w-[900px] text-left">
+            <thead><tr><th>Aset</th><th>Pengaju</th><th>Unit kerja</th><th>Status / prioritas</th><th>Penugasan</th><th className="text-right">Aksi</th></tr></thead>
+            <tbody>{items.map((asset) => {
+              const pending = asset.publication_status === "pending_review";
+              const priority = pending ? (PRIORITY[asset.queue_priority] || PRIORITY.new) : publicationStatus(asset);
+              const TypeIcon = asset.asset_type === "video" ? Video : FileText;
+              return <tr key={asset.public_id}>
+                <td><div className="flex items-start gap-3"><span className="rounded-lg bg-primary-100 p-2 text-content-guide"><TypeIcon size={18} /></span><div className="min-w-0"><p className="max-w-xs truncate font-semibold text-content-primary" title={asset.title}>{asset.title}</p><p className="mt-1 text-xs text-content-secondary">{asset.category_name || "Tanpa kategori"} · Putaran {asset.review_round || 1}</p></div></div></td>
+                <td>{asset.author_name}</td><td>{unitLabel(asset)}</td>
+                <td><Badge type="soft" variant={priority.variant} size="sm">{priority.label}</Badge><p className="mt-1 text-xs text-content-secondary">{pending ? `${asset.waiting_hours || 0} jam menunggu` : dateLabel(asset.reviewed_at)}</p></td>
+                <td>{asset.assigned_verifier_name || (pending ? "Belum ditugaskan" : asset.reviewer_name || "—")}</td>
+                <td className="text-right"><Button hierarchy="secondary" size="sm" onClick={() => openReview(asset)}>{pending && canDecide ? "Periksa" : "Lihat keterangan"}</Button></td>
+              </tr>;
+            })}</tbody>
+          </ResponsiveTable>
         </div>
-
-        {error ? <div className="p-5"><Alert variant="critical" title="Antrean tidak dapat dimuat" message={error} /></div> : loading ? (
-          <div className="space-y-3 p-5">{[1, 2, 3, 4].map((row) => <Skeleton key={row} height="78px" rounded="lg" />)}</div>
-        ) : items.length === 0 ? (
-          <EmptyState icon={FileCheck2} title={`Tidak ada aset berstatus ${statusMeta.label.toLowerCase()}`} description="Pengajuan yang sesuai cakupan organisasi dan filter akan tampil di sini." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="bg-primary-50 text-xs uppercase tracking-wide text-content-primary"><tr><th className="px-5 py-4">Aset</th><th className="px-4 py-4">Pengaju</th><th className="px-4 py-4">Unit Kerja</th><th className="px-4 py-4">Status</th><th className="px-4 py-4">Waktu</th><th className="px-5 py-4 text-right">Aksi</th></tr></thead>
-              <tbody className="divide-y divide-border-subtle">
-                {items.map((asset) => {
-                  const meta = publicationStatus(asset);
-                  const TypeIcon = asset.asset_type === "video" ? Video : FileText;
-                  return <tr key={asset.public_id} className="transition-colors hover:bg-page-secondary"><td className="px-5 py-4"><div className="flex items-start gap-3"><span className="rounded-lg bg-primary-100 p-2 text-content-guide"><TypeIcon size={18} /></span><div className="min-w-0"><p className="max-w-sm truncate font-semibold text-content-primary" title={asset.title}>{asset.title}</p><p className="mt-1 text-xs text-content-secondary">{asset.category_name || "Tanpa kategori"} · Putaran {asset.review_round || 1}</p></div></div></td><td className="px-4 py-4 text-content-secondary">{asset.author_name}</td><td className="px-4 py-4 text-content-secondary">{unitLabel(asset)}</td><td className="px-4 py-4"><Badge type="soft" variant={meta.variant} size="sm">{meta.label}</Badge></td><td className="px-4 py-4 text-xs text-content-secondary"><span className="inline-flex items-center gap-1"><Clock3 size={14} />{formatDateTime(asset.submitted_at || asset.reviewed_at)}</span></td><td className="px-5 py-4 text-right"><Button hierarchy="secondary" size="sm" onClick={() => openReview(asset)}>{status === "pending_review" && canDecide ? "Periksa" : "Lihat keterangan"}</Button></td></tr>;
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {!loading && pagination.totalPages > 1 && <div className="flex items-center justify-between gap-3 border-t border-border-subtle px-5 py-4 text-sm text-content-secondary"><span>{pagination.totalItems} pengajuan</span><div className="flex items-center gap-2"><Button hierarchy="tertiary" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Sebelumnya</Button><span>Halaman {page} dari {pagination.totalPages}</span><Button hierarchy="tertiary" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</Button></div></div>}
-      </CardPlain>
-
-      <Modal open={Boolean(selected)} onClose={closeReview} title={selected?.publication_status === "pending_review" ? "Penilaian kelayakan aset" : "Keterangan verifikasi"} size="lg">
-        {selected && <div className="space-y-5">
-          <div className="rounded-xl border border-border-subtle bg-page-secondary p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-lg font-bold text-content-primary">{selected.title}</p><p className="mt-1 text-sm text-content-secondary">{selected.author_name} · {unitLabel(selected)}</p></div><Badge type="soft" variant={publicationStatus(selected).variant}>{publicationStatus(selected).label}</Badge></div><p className="mt-4 whitespace-pre-line text-sm leading-6 text-content-secondary">{selected.content || "Aset ini belum memiliki deskripsi tambahan."}</p>{selected.file_url && <a href={uploadUrl(selected.file_url)} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-content-guide hover:underline"><ExternalLink size={15} /> Buka materi untuk diperiksa</a>}</div>
-          {decisionError && <Alert variant="critical" title="Keputusan belum tersimpan" message={decisionError} />}
-          <TextArea label={selected.publication_status === "pending_review" ? "Keterangan verifikator *" : "Keterangan keputusan"} value={note} onChange={(value) => setNote(inputValue(value))} rows={5} maxLength={2000} disabled={selected.publication_status !== "pending_review" || !canDecide} placeholder="Tuliskan alasan keputusan atau bagian yang perlu diperbaiki." />
-          {selected.publication_status === "pending_review" && canDecide && <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end"><Button hierarchy="secondary" onClick={closeReview} disabled={Boolean(saving)}>Batal</Button><Button hierarchy="secondary" prefixIcon={<XCircle size={16} />} onClick={() => decide("rejected")} disabled={Boolean(saving)}>{saving === "rejected" ? "Menyimpan…" : "Tolak"}</Button><Button hierarchy="secondary" prefixIcon={<RotateCcw size={16} />} onClick={() => decide("revision_required")} disabled={Boolean(saving)}>{saving === "revision_required" ? "Menyimpan…" : "Minta perbaikan"}</Button><Button hierarchy="primary" prefixIcon={<CheckCircle2 size={16} />} onClick={() => decide("approved")} disabled={Boolean(saving)}>{saving === "approved" ? "Menerbitkan…" : "Setujui & terbitkan"}</Button></div>}
-          {selected.publication_status !== "pending_review" && <div className="flex justify-end"><Button hierarchy="secondary" onClick={closeReview}>Tutup</Button></div>}
-        </div>}
-      </Modal>
-    </div>
-  );
+      )}
+      {!loading && pagination.totalPages > 1 && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-4 text-sm text-content-secondary"><span>{pagination.totalItems} pengajuan</span><div className="flex items-center gap-2"><Button hierarchy="tertiary" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Sebelumnya</Button><span>{page} / {pagination.totalPages}</span><Button hierarchy="tertiary" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage((value) => value + 1)}>Berikutnya</Button></div></div>}
+    </CardPlain>
+  </div>;
 }

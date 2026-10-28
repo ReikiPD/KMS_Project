@@ -1,0 +1,105 @@
+/* Responsive shell and shared content rules. Keep document/table viewers as
+ * bounded scrolling surfaces; never clip the document to hide layout errors. */
+.kms-admin-shell main, .kms-public main { min-width: 0; }
+.kms-responsive-table { min-width: 0; width: 100%; }
+.kms-admin-shell .kms-responsive-sidebar { position: relative; height: 100%; flex-shrink: 0; }
+.kms-sidebar-backdrop { position: fixed; inset: 0; z-index: 80; background: rgb(4 19 36 / .5); }
+.kms-sidebar-drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid var(--kms-border); }
+.kms-sidebar-drawer-heading button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: .5rem; }
+.kms-sidebar-drawer-heading button:focus-visible { outline: 2px solid var(--kms-blue-600); }
+.kms-responsive-rows { display: grid; gap: .75rem; padding: .25rem; margin: 0; list-style: none; }
+.kms-responsive-rows > li { min-width: 0; padding: 1rem; background: var(--kms-surface); color: var(--kms-ink); border: 1px solid var(--kms-border); border-radius: .75rem; display: grid; gap: .75rem; }
+.kms-responsive-row-title, .kms-responsive-row-title > div { min-width: 0; overflow-wrap: anywhere; }
+.kms-responsive-row-title { display: flex; align-items: start; gap: .5rem; }
+.kms-responsive-row-title > div:last-child { flex: 1; }
+.kms-responsive-rows summary { padding-block: .65rem; min-height: 44px; cursor: pointer; color: var(--kms-blue-600); font-weight: 600; }
+.kms-responsive-rows dl { display: grid; gap: .75rem; }
+.kms-responsive-rows dt { color: var(--kms-muted); font-size: .8125rem; margin-bottom: .25rem; }
+.kms-responsive-rows dd { overflow-wrap: anywhere; min-width: 0; }
+.kms-responsive-row-actions > div { flex-wrap: wrap; justify-content: flex-start; }
+.kms-responsive-rows button { min-height: 44px; }
+.kms-responsive-row-title .kms-mobile-row-details { display: none; }
+
+@media (max-width: 1199px) {
+  .kms-admin-shell .kms-responsive-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 90; height: 100dvh; width: min(20rem, calc(100vw - 2rem)) !important; max-width: calc(100vw - 2rem); transform: translateX(-100%); visibility: hidden; transition: transform 200ms ease; padding-block: env(safe-area-inset-top, 0) env(safe-area-inset-bottom, 0); }
+  .kms-admin-shell .kms-responsive-sidebar.is-open { transform: translateX(0); visibility: visible; box-shadow: 12px 0 36px #0003; }
+  .kms-admin-shell .kms-admin-topbar { gap: .5rem; }
+  .kms-admin-shell .kms-admin-topbar-identity { min-width: 0; }
+  .kms-admin-shell .kms-admin-employee-pill { display: none; }
+  .kms-admin-shell .kms-admin-profile-trigger > div { display: none; }
+  .kms-admin-shell .kms-admin-topbar-action { display: inline-flex; flex: none; min-width: 44px; min-height: 44px; }
+  .kms-admin-shell .kms-admin-topbar-secondary { flex-shrink: 0; }
+  .kms-admin-shell .kms-admin-sidebar .kms-sidebar-scroll { min-height: 0; }
+  .kms-public .kms-catalogue-layout { grid-template-columns: minmax(0, 1fr); }
+  .kms-public .kms-catalogue-layout > aside, .kms-public .kms-catalogue-heading > .kms-catalogue-desktop-filters { display: none; }
+  .kms-public .kms-catalogue-mobile-filter { display: inline-flex; }
+  .kms-admin-shell .kms-list-toolbar { gap: .75rem; }
+  .kms-admin-shell .kms-list-toolbar > *, .kms-admin-shell .kms-admin-toolbar > * { min-width: 0; max-width: 100%; }
+  .kms-admin-shell .kms-admin-page-heading, .kms-admin-shell .kms-admin-panel-heading { flex-wrap: wrap; }
+  .kms-admin-shell .kms-review-workspace { display: block; }
+  .kms-admin-shell .kms-review-mobile-tabs { display: flex; }
+  .kms-admin-shell .kms-review-workspace > [data-active=false] { display: none; }
+  .kms-admin-shell .kms-role-permission-toolbar { flex-wrap: wrap; }
+  .kms-admin-shell .kms-workspace-tabs { gap: .4rem; }
+  .kms-admin-shell .kms-workspace-tabs button { min-height: 44px; }
+  .kms-admin-shell .kms-context-banner { padding: .75rem 1rem; }
+  .kms-admin-shell .kms-context-banner > * { min-width: 0; overflow-wrap: anywhere; }
+  .kms-admin-shell .kms-internal-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kms-admin-shell .kms-internal-toolbar > * { max-width: 100%; }
+  .ina-modal__dialog { max-width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); min-width: 0; display: flex; flex-direction: column; }
+  .ina-modal__dialog .ina-modal__header { flex-shrink: 0; }
+  .ina-modal__dialog .ina-modal__body { min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .ina-modal__dialog .ina-modal__footer { flex-shrink: 0; flex-wrap: wrap; }
+  .ina-modal__dialog .ina-modal__title { overflow-wrap: anywhere; }
+  .ina-select-dropdown__panel, .ina-date-picker__panel { max-width: calc(100vw - 1rem); max-height: min(24rem, 55dvh); overscroll-behavior: contain; }
+  .kms-admin-shell .kms-admin-table-shell, .kms-admin-shell .kms-admin-native-table-shell, .kms-admin-shell .overflow-x-auto { max-width: 100%; min-width: 0; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+}
+
+@media (max-width: 767px) {
+  .kms-admin-shell .kms-admin-topbar { padding-inline: .5rem !important; }
+  .kms-admin-shell .kms-admin-brand-link > span:last-child:not(:first-child), .kms-admin-shell .kms-topbar-separator { display: none; }
+  .kms-admin-shell .kms-admin-context-label { max-width: 5rem; font-size: .75rem; }
+  .kms-admin-shell .kms-admin-topbar-identity { gap: .25rem !important; }
+  .kms-public .kms-library-container { padding-inline: 1rem; }
+  .kms-public .kms-library-grid { gap: 1.5rem; grid-template-columns: minmax(0, 1fr); }
+  .kms-public .kms-library-search { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .kms-admin-shell .kms-list-toolbar { display: flex; flex-wrap: wrap; }
+  .kms-admin-shell .kms-list-toolbar > form, .kms-admin-shell .kms-list-toolbar > .kms-multiple-search { flex-basis: 100%; width: 100%; }
+  .kms-admin-shell .kms-list-toolbar > button { flex: 1 1 auto; }
+  .kms-admin-shell .kms-reference-with-mobile .ina-table__table { display: none; }
+  .kms-admin-shell .kms-reference-with-mobile .ina-table { min-width: 0 !important; }
+  .kms-admin-shell .kms-mobile-data-list > li { padding: .875rem; }
+  .kms-admin-shell .kms-mobile-data-list summary { min-height: 44px; }
+  .kms-admin-shell .kms-mobile-data-list .kms-mobile-data-actions > div { flex-wrap: wrap; justify-content: flex-start; }
+  .kms-admin-shell .kms-internal-filter-grid, .kms-admin-shell .kms-internal-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .kms-admin-shell .kms-internal-table-card, .kms-admin-shell .kms-internal-form-card { padding: .875rem; }
+  .kms-admin-shell .kms-internal-asset-toggle h2 { overflow-wrap: anywhere; }
+  .kms-admin-shell .kms-internal-asset-toggle p { overflow-wrap: anywhere; }
+  .kms-admin-shell .kms-internal-rename { flex-wrap: wrap; }
+  .kms-admin-shell .kms-internal-rename input { flex: 1 1 8rem; }
+  .kms-admin-shell .kms-internal-upload { padding: 1rem; }
+  .kms-admin-shell .kms-internal-form-actions > button { flex: 1 1 9rem; min-height: 44px; }
+  .kms-admin-shell .kms-internal-history-row { flex-direction: column; align-items: stretch; }
+  .kms-internal-preview .kms-internal-preview-heading { flex-wrap: wrap; }
+  .kms-internal-preview .kms-internal-preview-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kms-internal-preview .kms-internal-preview-footer { flex-wrap: wrap; }
+  .kms-internal-preview .kms-internal-preview-footer > button { width: 100%; }
+  .kms-internal-preview .kms-office-controls { gap: .5rem; }
+  .kms-internal-preview .kms-office-controls > *, .kms-internal-preview .kms-office-controls select { max-width: 100%; flex-wrap: wrap; }
+  .kms-admin-shell .kms-review-decision-actions { display: flex !important; flex-wrap: wrap; }
+  .kms-admin-shell .kms-review-decision-actions > button { flex: 1 1 9rem; }
+  .kms-admin-shell .kms-review-footer { position: static; }
+  .kms-admin-shell form .grid { min-width: 0; }
+  .kms-admin-shell form input:not([type=checkbox]):not([type=radio]), .kms-admin-shell form textarea, .kms-public form input { min-width: 0; max-width: 100%; font-size: 1rem; }
+  .kms-admin-shell .kms-modal-actions, .ina-modal__body .kms-modal-actions { flex-wrap: wrap; }
+  .kms-admin-shell .kms-modal-actions button, .ina-modal__body .kms-modal-actions button { flex: 1 1 8rem; }
+  .kms-admin-shell .ina-pagination, .kms-public .ina-pagination { flex-wrap: wrap; }
+  .kms-admin-shell .ina-pagination__nav-container, .kms-public .ina-pagination__nav-container { max-width: 100%; }
+  .kms-public .ina-button, .kms-admin-shell .ina-button, .ina-modal__dialog .ina-button { min-height: 44px; }
+  .kms-public .ina-button:has(> svg:only-child), .kms-admin-shell .ina-button:has(> svg:only-child) { min-width: 44px; }
+  .ina-modal__dialog .ina-modal__body { padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kms-admin-shell .kms-responsive-sidebar { transition: none; }
+  .kms-admin-shell .overflow-x-auto { scroll-behavior: auto; }
+}

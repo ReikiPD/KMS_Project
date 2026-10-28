@@ -1,9 +1,9 @@
 const fs = require("fs/promises");
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { recordAudit } = require("../services/auditService");
 const { resolveUploadFile } = require("../services/mediaService");
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const { PUBLIC_ID_PATTERN: UUID_PATTERN } = require("../utils");
 
 const auditActor = (req) => ({
   actorId: req.user.id || null,

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { officePreviewPlugin } from './officePreviewPlugin.mjs';
 
 const remoteGoogleFontImports = [
   /@import\s*(?:url\(\s*)?['"]https:\/\/fonts\.googleapis\.com\/[^'"]+['"]\s*\)?\s*;/gi,
@@ -25,7 +26,9 @@ const stripRemoteFontImports = () => ({
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [tailwindcss(), react(), stripRemoteFontImports(), VitePWA({
+  cacheDir: '.vite-cache',
+  optimizeDeps: { include: ['xlsx','jszip'] },
+  plugins: [tailwindcss(), react(), stripRemoteFontImports(), officePreviewPlugin(), VitePWA({
     registerType: "autoUpdate",
     includeAssets: ["LOGO_KEMENTERIAN_PERHUBUNGAN_REPUBLIK_INDONESIA.png", "pwa-icon.svg"],
     manifest: {
@@ -42,14 +45,24 @@ export default defineConfig({
       clientsClaim: true,
       skipWaiting: true,
       navigateFallback: "index.html",
+      navigateFallbackDenylist: [/^\/office-preview\//],
+      // Office libraries are fetched only when a preview is opened, not on the homepage.
+      globIgnores: ['**/office-preview/**','**/sheet.worker-*.js'],
       runtimeCaching: [
+        { urlPattern: /\/api\/internal-assets(?:\/|\?|$)/, handler: "NetworkOnly" },
+        {
+          // Visibility is controlled by Admin; never show an offline cached
+          // featured section after it has been disabled.
+          urlPattern: /\/api\/assets\/featured(?:\?.*)?$/,
+          handler: "NetworkOnly",
+        },
         {
           urlPattern: /\/api\/announcements(?:\?.*)?$/,
           handler: "NetworkFirst",
           options: { cacheName: "kms-public-announcements", expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 } },
         },
         {
-          urlPattern: /\/api\/assets\/(?:homepage|featured|search\/suggestions|\d+(?:\/related)?)(?:\?.*)?$/,
+          urlPattern: /\/api\/assets\/(?:homepage|search\/suggestions|\d+(?:\/related)?)(?:\?.*)?$/,
           handler: "NetworkFirst",
           options: { cacheName: "kms-public-api", expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 } },
         },

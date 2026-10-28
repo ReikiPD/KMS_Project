@@ -1,0 +1,367 @@
+/* KMS surfaces that sit above IDDS components follow the same global theme. */
+[data-theme="dark"] .kms-header,
+[data-theme="dark"] .kms-admin-topbar {
+  background: linear-gradient(100deg, #071525, #0c2e4f 60%, #104b72);
+  box-shadow: 0 3px 18px rgb(0 0 0 / 0.34);
+}
+
+[data-theme="dark"] .kms-public-page {
+  background:
+    radial-gradient(circle at 4% 38%, rgb(88 169 223 / 0.1), transparent 23rem),
+    radial-gradient(circle at 96% 67%, rgb(66 191 193 / 0.08), transparent 25rem),
+    linear-gradient(180deg, #091827 0, var(--kms-canvas) 34rem);
+}
+
+[data-theme="dark"] .kms-home-section--featured {
+  border-color: color-mix(in srgb, var(--kms-blue-600) 24%, var(--kms-border));
+  background: linear-gradient(125deg, #10283a, #142a38 68%, #282b2b);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 0.25);
+}
+
+[data-theme="dark"] .kms-home-section--announcement {
+  border-color: color-mix(in srgb, var(--kms-gold-500) 22%, var(--kms-border));
+  background:
+    radial-gradient(circle at 96% 0%, rgb(242 196 94 / 0.11), transparent 18rem),
+    linear-gradient(135deg, #142538, #102536 52%, #102c33);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 0.25);
+}
+
+[data-theme="dark"] .kms-home-section--catalogue {
+  border-color: color-mix(in srgb, var(--kms-teal-600) 20%, var(--kms-border));
+  background:
+    radial-gradient(circle at 100% 0%, rgb(66 191 193 / 0.1), transparent 22rem),
+    linear-gradient(180deg, #102334, #0e202f);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 0.24);
+}
+
+[data-theme="dark"] .kms-catalogue-heading {
+  border-color: #315069;
+  background: linear-gradient(110deg, #152e42, #122638 58%, #123039);
+}
+
+[data-theme="dark"] .kms-contribution,
+[data-theme="dark"] .kms-admin-contribution-card {
+  border-color: rgb(88 169 223 / 0.24);
+  background: linear-gradient(125deg, rgb(88 169 223 / 0.12), rgb(66 191 193 / 0.08));
+}
+
+[data-theme="dark"] .kms-detail-type-badge {
+  border-color: rgb(88 169 223 / 0.38) !important;
+  background: rgb(88 169 223 / 0.14) !important;
+  color: #a7d8f6 !important;
+}
+
+[data-theme="dark"] .kms-detail-type-badge--video {
+  border-color: rgb(66 191 193 / 0.4) !important;
+  background: rgb(66 191 193 / 0.14) !important;
+  color: #91e0df !important;
+}
+
+[data-theme="dark"] .kms-viewer-toolbar,
+[data-theme="dark"] .kms-admin-period-toolbar,
+[data-theme="dark"] .kms-admin-toolbar,
+[data-theme="dark"] .kms-kpi-trend-panel {
+  background: linear-gradient(110deg, rgb(15 31 47 / 0.98), rgb(19 40 59 / 0.82));
+}
+
+[data-theme="dark"] .kms-viewer-toolbar-icon,
+[data-theme="dark"] .kms-detail-info-icon,
+[data-theme="dark"] .kms-content-icon {
+  background: rgb(88 169 223 / 0.14);
+  color: var(--kms-blue-600);
+}
+
+[data-theme="dark"] .kms-catalogue-filter,
+[data-theme="dark"] .kms-hero-search {
+  border-color: var(--kms-border);
+  background: rgb(15 31 47 / 0.96);
+}
+
+[data-theme="dark"] .kms-asset-card-title {
+  color: var(--kms-ink);
+}
+
+
+[data-theme="dark"] .kms-login-tab--active {
+  background: #194f78;
+}
+
+[data-theme="dark"] .kms-admin-shell main {
+  background: radial-gradient(circle at 100% 0, rgb(88 169 223 / 0.07), transparent 27rem), var(--kms-canvas);
+}
+
+[data-theme="dark"] .kms-admin-shell {
+  color: var(--kms-ink);
+}
+
+[data-theme="dark"] .kms-admin-sidebar {
+  border-color: var(--kms-border) !important;
+  background: linear-gradient(180deg, #13283a, #102232 72%, #0e1f2f);
+  color: var(--kms-ink);
+  box-shadow: 10px 0 28px rgb(0 0 0 / 0.18);
+}
+
+[data-theme="dark"] .kms-admin-sidebar .kms-admin-nav-item {
+  color: var(--kms-muted);
+}
+
+[data-theme="dark"] .kms-admin-sidebar .kms-admin-nav-item:hover,
+[data-theme="dark"] .kms-admin-sidebar .kms-admin-nav-item:focus-visible,
+[data-theme="dark"] .kms-admin-sidebar .kms-admin-nav-item--active {
+  border-color: rgb(99 179 231 / 0.28);
+  background: linear-gradient(90deg, rgb(99 179 231 / 0.18), rgb(76 200 200 / 0.09));
+  color: #bfe4fa;
+}
+
+[data-theme="dark"] .kms-admin-sidebar-note {
+  border-color: rgb(99 179 231 / 0.24);
+  background: rgb(99 179 231 / 0.075);
+}
+
+[data-theme="dark"] .kms-admin-surface,
+[data-theme="dark"] .kms-admin-shell .ina-card.kms-admin-surface,
+[data-theme="dark"] .kms-admin-shell .ina-card-plain.kms-admin-surface,
+[data-theme="dark"] .kms-admin-dashboard .ina-card,
+[data-theme="dark"] .kms-admin-dashboard .ina-card-plain.overflow-hidden,
+[data-theme="dark"] .kms-profile-surface {
+  border-color: var(--kms-border) !important;
+  background: linear-gradient(145deg, #14293b, #112333) !important;
+  color: var(--kms-ink) !important;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.18);
+}
+
+[data-theme="dark"] .kms-admin-metric-card {
+  border-top: 2px solid rgb(99 179 231 / 0.72) !important;
+  background: linear-gradient(150deg, #162d40, #112333 74%) !important;
+}
+
+[data-theme="dark"] .kms-admin-metric-card:nth-child(2n) {
+  border-top-color: rgb(76 200 200 / 0.72) !important;
+}
+
+[data-theme="dark"] .kms-admin-ranking-card {
+  background: linear-gradient(155deg, #162b3d, #102231) !important;
+}
+
+[data-theme="dark"] .kms-admin-ranking-item {
+  border-radius: 0.625rem;
+  transition: background-color var(--kms-motion-fast) ease;
+}
+
+[data-theme="dark"] .kms-admin-ranking-item:hover,
+[data-theme="dark"] .kms-admin-ranking-item:focus-visible {
+  background: rgb(99 179 231 / 0.08);
+}
+
+[data-theme="dark"] .kms-ranking-more-button.ina-button {
+  border-color: rgb(99 179 231 / 0.42) !important;
+  background: rgb(99 179 231 / 0.09) !important;
+  color: #c7e8fa !important;
+}
+
+[data-theme="dark"] .kms-ranking-more-button.ina-button:hover,
+[data-theme="dark"] .kms-ranking-more-button.ina-button:focus-visible {
+  border-color: rgb(99 179 231 / 0.72) !important;
+  background: rgb(99 179 231 / 0.17) !important;
+}
+
+[data-theme="dark"] .kms-admin-period-toolbar {
+  background: linear-gradient(110deg, #162b3d, #112333) !important;
+}
+
+[data-theme="dark"] .kms-admin-period-toolbar .ina-chip__item {
+  border-color: var(--kms-border) !important;
+  background: #102333 !important;
+  color: var(--kms-ink) !important;
+}
+
+[data-theme="dark"] .kms-admin-period-toolbar .ina-chip__item:hover,
+[data-theme="dark"] .kms-admin-period-toolbar .ina-chip__item:focus-visible {
+  border-color: rgb(99 179 231 / 0.62) !important;
+  background: rgb(99 179 231 / 0.12) !important;
+}
+
+[data-theme="dark"] .kms-admin-period-toolbar .ina-chip__item--selected {
+  border-color: var(--kms-blue-600) !important;
+  background: #214f70 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .kms-admin-native-table-shell,
+[data-theme="dark"] .kms-admin-table-shell {
+  border-color: var(--kms-border);
+  background: #112333;
+}
+
+[data-theme="dark"] .kms-admin-native-table thead,
+[data-theme="dark"] .kms-admin-table-shell .ina-table thead {
+  background: #193247;
+}
+
+[data-theme="dark"] .kms-admin-toolbar {
+  border-color: var(--kms-border);
+  background: linear-gradient(110deg, #1a3449, #142a3d);
+}
+
+[data-theme="dark"] .kms-admin-panel-heading h2,
+[data-theme="dark"] .kms-admin-native-table th {
+  color: var(--kms-ink);
+}
+
+[data-theme="dark"] .kms-admin-panel-heading p,
+[data-theme="dark"] .kms-admin-native-table {
+  color: var(--kms-muted);
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--primary {
+  border-color: #3189c4 !important;
+  background: #2479b3 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--primary:hover,
+[data-theme="dark"] .kms-admin-shell .ina-button--primary:focus-visible {
+  border-color: #57a9df !important;
+  background: #3189c4 !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--secondary {
+  border-color: rgb(99 179 231 / 0.42) !important;
+  background: rgb(99 179 231 / 0.08) !important;
+  color: #d4edfb !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--secondary:hover,
+[data-theme="dark"] .kms-admin-shell .ina-button--secondary:focus-visible {
+  border-color: rgb(99 179 231 / 0.68) !important;
+  background: rgb(99 179 231 / 0.16) !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--tertiary {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--kms-muted) !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .ina-button--tertiary:hover,
+[data-theme="dark"] .kms-admin-shell .ina-button--tertiary:focus-visible {
+  background: rgb(99 179 231 / 0.11) !important;
+  color: #c7e8fa !important;
+}
+
+[data-theme="dark"] .kms-admin-topbar .kms-admin-topbar-action.ina-button,
+[data-theme="dark"] .kms-admin-topbar .kms-theme-toggle--header.ina-button {
+  border-color: rgb(255 255 255 / 0.28) !important;
+  background: rgb(255 255 255 / 0.09) !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .kms-admin-topbar .kms-admin-topbar-action.ina-button:hover,
+[data-theme="dark"] .kms-admin-topbar .kms-admin-topbar-action.ina-button:focus-visible,
+[data-theme="dark"] .kms-admin-topbar .kms-theme-toggle--header.ina-button:hover,
+[data-theme="dark"] .kms-admin-topbar .kms-theme-toggle--header.ina-button:focus-visible {
+  border-color: rgb(255 255 255 / 0.5) !important;
+  background: rgb(255 255 255 / 0.17) !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .kms-text-on-color.ina-button {
+  border-color: #dc4c4c !important;
+  background: #c83939 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .kms-admin-shell .kms-text-on-color.ina-button:hover,
+[data-theme="dark"] .kms-admin-shell .kms-text-on-color.ina-button:focus-visible {
+  border-color: #ef6a6a !important;
+  background: #dc4c4c !important;
+}
+
+[data-theme="dark"] .ina-badge--soft.ina-badge--neutral {
+  background: #263d50 !important;
+  color: #d6e3ec !important;
+}
+
+[data-theme="dark"] .ina-badge--soft.ina-badge--brand,
+[data-theme="dark"] .ina-badge--soft.ina-badge--info {
+  background: rgb(99 179 231 / 0.16) !important;
+  color: #bfe5fb !important;
+}
+
+[data-theme="dark"] .ina-badge--soft.ina-badge--warning {
+  background: rgb(242 196 94 / 0.16) !important;
+  color: #f7d98f !important;
+}
+
+[data-theme="dark"] .ina-alert {
+  border-width: 1px !important;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.12);
+}
+
+[data-theme="dark"] .ina-alert--info {
+  border-color: #2c607f !important;
+  background: #112f47 !important;
+}
+
+[data-theme="dark"] .ina-alert--success {
+  border-color: #326c5f !important;
+  background: #12332d !important;
+}
+
+[data-theme="dark"] .ina-alert--caution {
+  border-color: #725d29 !important;
+  background: #362d18 !important;
+}
+
+[data-theme="dark"] .ina-alert--critical {
+  border-color: #80404c !important;
+  background: #3a2026 !important;
+}
+
+[data-theme="dark"] .ina-alert--neutral {
+  border-color: #40586a !important;
+  background: #1a2d3c !important;
+}
+
+[data-theme="dark"] .ina-alert__title,
+[data-theme="dark"] .ina-alert__description,
+[data-theme="dark"] .ina-alert__action,
+[data-theme="dark"] .ina-alert__close-button {
+  color: var(--kms-ink) !important;
+}
+
+[data-theme="dark"] .ina-alert__description {
+  color: #c1cfda !important;
+}
+
+[data-theme="dark"] .ina-alert--info .ina-alert__icon { color: #77c2f1 !important; }
+[data-theme="dark"] .ina-alert--success .ina-alert__icon { color: #82d8ba !important; }
+[data-theme="dark"] .ina-alert--caution .ina-alert__icon { color: #f1cf77 !important; }
+[data-theme="dark"] .ina-alert--critical .ina-alert__icon { color: #ff9eab !important; }
+[data-theme="dark"] .ina-alert--neutral .ina-alert__icon { color: #b6c5d0 !important; }
+
+[data-theme="dark"] .kms-admin-personal-stat,
+[data-theme="dark"] .kms-form-action-bar {
+  background: rgb(15 31 47 / 0.94);
+}
+
+[data-theme="dark"] .kms-form-action-bar {
+  box-shadow: 0 -12px 26px rgb(0 0 0 / 0.24);
+}
+
+[data-theme="dark"] .kms-empty-state {
+  background: linear-gradient(145deg, rgb(15 31 47 / 0.98), rgb(19 40 59 / 0.72));
+}
+
+[data-theme="dark"] .kms-admin-native-table tbody tr:hover,
+[data-theme="dark"] .kms-admin-table-shell .ina-table tbody tr:hover {
+  background: rgb(88 169 223 / 0.09) !important;
+}
+
+[data-theme="dark"] .kms-admin-chart-axis-label { fill: #a9bac8; }
+[data-theme="dark"] .kms-admin-chart-grid { stroke: rgb(88 169 223 / 0.2); }
+[data-theme="dark"] .kms-admin-employee-context { color: var(--kms-ink); }
+[data-theme="dark"] .kms-admin-employee-context > p:last-child { color: var(--kms-muted); }
+[data-theme="dark"] .kms-metric-delta--up { color: #75d5d4; }
+[data-theme="dark"] .kms-metric-delta--down { color: #ff9b9b; }
+[data-theme="dark"] .kms-error-boundary-icon { color: var(--kms-gold-500); }
+

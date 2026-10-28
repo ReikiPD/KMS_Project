@@ -79,4 +79,16 @@ const announcementUpload = multer({
   limits: { fileSize: uploads.avatarMaxBytes, files: 1, fields: 10, parts: 11 },
 });
 
-module.exports = { announcementUpload, assetUpload, avatarUpload };
+const logoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDirectory),
+    filename: (req, file, cb) => cb(null, generatedFileName("logo", file)),
+  }),
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === "logo" && imageExtensions[file.mimetype]?.includes(extensionOf(file))) return cb(null, true);
+    return cb(new Error("Logo harus berupa PNG, JPG, atau WebP."));
+  },
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 12, parts: 13 },
+});
+
+module.exports = { announcementUpload, assetUpload, avatarUpload, logoUpload };

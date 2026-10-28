@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Alert, Avatar, Badge, Button, CardPlain, Pagination, SelectDropdown, Skeleton } from "@idds/react";
-import { Bell, CheckCheck, CircleCheck, ClipboardCheck, MessageCircle, Reply, RotateCcw, Search, Share2, ShieldCheck, Users, XCircle } from "lucide-react";
+import { Bell, CheckCheck, CircleCheck, ClipboardCheck, MessageCircle, Reply, RotateCcw, Search, Share2, ShieldCheck, UserRoundCheck, Users, XCircle } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
 import MultipleSearchSelect from "../../../components/MultipleSearchSelect";
 import EmptyState from "../../../components/EmptyState";
@@ -17,6 +17,7 @@ const notificationMeta = {
   reply: { icon: Reply, label: "Balasan", text: "membalas komentar pada", actorFallback: "Seseorang" },
   share: { icon: Share2, label: "Dibagikan", text: "membagikan", actorFallback: "Seseorang" },
   asset_submitted: { icon: ClipboardCheck, label: "Pengajuan verifikasi", text: "mengajukan untuk diverifikasi", actorFallback: "Pegawai" },
+  asset_assigned: { icon: UserRoundCheck, label: "Penugasan verifikasi", text: "menugaskan verifikasi", actorFallback: "Koordinator verifikasi" },
   asset_approved: { icon: CircleCheck, label: "Disetujui", text: "menyetujui dan menerbitkan", actorFallback: "Verifikator KMS" },
   asset_revision: { icon: RotateCcw, label: "Perlu perbaikan", text: "meminta perbaikan pada", actorFallback: "Verifikator KMS" },
   asset_rejected: { icon: XCircle, label: "Ditolak", text: "menolak publikasi", actorFallback: "Verifikator KMS" },
@@ -113,7 +114,7 @@ export default function ActivityPage() {
   };
   const openNotification = async (notification) => {
     if (!isAdminWorkspace) await markRead(notification);
-    if (notification.type === "asset_submitted") {
+    if (["asset_submitted", "asset_assigned"].includes(notification.type)) {
       const params = new URLSearchParams();
       if (notification.asset_title) params.set("q", notification.asset_title);
       navigate(`/admin/asset-verification${params.size ? `?${params}` : ""}`);

@@ -1,5 +1,7 @@
-import { BookOpen, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
+import { ExternalLink, Mail, MapPin, Phone } from "lucide-react";
 import { Link } from "react-router-dom";
+import KmsPublicBrand from "./KmsPublicBrand";
+import PublicRouteArt from "./PublicRouteArt";
 
 const officialLinks = [
   { label: "Portal Kemenhub", href: "https://dephub.go.id/" },
@@ -10,12 +12,12 @@ const officialLinks = [
 
 export default function PublicFooter() {
   return (
-    <footer className="kms-footer mt-auto" aria-label="Informasi Kementerian Perhubungan">
+    <footer className="kms-footer kms-public-footer-redesign mt-auto" aria-label="Informasi Kementerian Perhubungan">
+      <PublicRouteArt variant="ring" />
       <div className="mx-auto grid max-w-7xl gap-9 px-4 py-12 md:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.8fr)_minmax(240px,0.8fr)] md:px-8">
         <div>
           <Link to="/" className="kms-footer-brand flex w-fit items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Kembali ke beranda KMS Kemenhub">
-            <span className="kms-footer-mark"><BookOpen size={22} aria-hidden="true" /></span>
-            <div><p className="kms-on-brand font-bold">KMS Kemenhub</p><p className="kms-on-brand-muted text-xs">Knowledge Management System Kementerian Perhubungan</p></div>
+            <KmsPublicBrand inverse />
           </Link>
           <p className="kms-on-brand-muted mt-4 max-w-md text-sm leading-6">Ruang berbagi pengetahuan untuk mendukung transportasi Indonesia yang terhubung, aman, dan berkelanjutan.</p>
         </div>

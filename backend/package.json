@@ -4,18 +4,14 @@
   "description": "API KMS Kemenhub",
   "main": "app.js",
   "scripts": {
-    "dev": "nodemon app.js",
     "start": "node app.js",
-    "migrate": "node database/migrate.js",
-    "seed": "node database/seed.js",
-    "reindex-search": "node scripts/reindexSearch.js",
-    "uploads:audit": "node scripts/auditUploads.js",
-    "uploads:clean": "node scripts/auditUploads.js --delete",
-    "assets:purge-expired": "node scripts/purgeExpiredAssets.js"
+    "dev": "nodemon app.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@prometheus-io/client": "0.16.1",
+    "archiver": "^8.0.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -24,7 +20,7 @@
     "file-type": "^22.0.1",
     "helmet": "^8.3.0",
     "morgan": "^1.11.0",
-    "multer": "^2.2.0",
+    "multer": "^2.3.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.23.0"
   },

@@ -8,6 +8,18 @@ export const canAccessAny = (user, resource, actions = PERMISSION_ACTIONS) => (
   actions.some((action) => hasPermission(user, resource, action))
 );
 
+export const canDecideAssetVerification = (user) => (
+  hasPermission(user, "asset_verification", "view")
+  && hasPermission(user, "asset_verification", "edit")
+);
+
+export const canAccessStaffAccount = (user) => !user?.read_only
+  && hasPermission(user, "staff_management", "view")
+  && (hasPermission(user, "staff_management", "post") || hasPermission(user, "staff_management", "edit"));
+
+export const hasOrganizationScope = (user) => Boolean(user?.environmentAdmin
+  || (user?.organization_scope === "all" && !user?.staff_scope_boundaries?.length));
+
 const CONTEXT_PRIVATE_RESOURCES = new Set(["activity", "profile"]);
 
 export const buildContextAccessUser = (actor, target, { readOnly = false } = {}) => {
@@ -22,7 +34,7 @@ export const buildContextAccessUser = (actor, target, { readOnly = false } = {})
       action,
       (!readOnly || action === "view")
         && !CONTEXT_PRIVATE_RESOURCES.has(resource)
-        && hasPermission(actor, resource, action)
+        && (!["staff_all_units", "role_permissions"].includes(resource) || hasPermission(actor, resource, action))
         && target.permissions?.[resource]?.[action] === true,
     ])),
   ]));
@@ -34,6 +46,7 @@ export const buildContextAccessUser = (actor, target, { readOnly = false } = {})
     email: target.email,
     department: target.department,
     work_unit_id: target.work_unit_id,
+    organization_scope: target.organization_scope || "unit",
     work_unit_public_id: target.work_unit_public_id,
     work_unit_name: target.work_unit_name,
     work_unit_alias: target.work_unit_alias,
@@ -41,6 +54,7 @@ export const buildContextAccessUser = (actor, target, { readOnly = false } = {})
     role: target.role,
     permissions,
     environmentAdmin: false,
+    read_only: readOnly,
     actorAccount: {
       id: actor.id,
       public_id: actor.public_id,
@@ -57,6 +71,7 @@ export const buildContextAccessUser = (actor, target, { readOnly = false } = {})
 };
 
 const BACKOFFICE_ENTRY_POINTS = [
+  ["my_tasks", "/admin/my-tasks"],
   ["dashboard", "/admin/dashboard"],
   ["assets", "/admin/assets"],
   ["asset_recovery", "/admin/assets/recovery"],
@@ -68,11 +83,15 @@ const BACKOFFICE_ENTRY_POINTS = [
   ["announcements", "/admin/announcements"],
   ["activity", "/admin/activity"],
   ["profile", "/admin/profile"],
+  ["internal_asset_recovery", "/admin/internal-assets/recovery"],
+  ["internal_assets", "/admin/internal-assets"],
+  ["internal_data_types", "/admin/internal-data-types"],
+  ["internal_data_categories", "/admin/internal-data-categories"],
 ];
 
 export const firstAllowedBackofficePath = (user) => (
   BACKOFFICE_ENTRY_POINTS.find(([resource]) => hasPermission(user, resource, "view"))?.[1]
-  || ([1, 2, 3].some((level) => hasPermission(user, `analytics_echelon_${level}`, "view")) && user?.work_unit_public_id
+  || ([1, 2, 3].some((level) => hasPermission(user, `analytics_echelon_${level}`, "view")) && (user?.work_unit_public_id || hasOrganizationScope(user))
     ? "/admin/work-units/analytics"
     : "/")
 );

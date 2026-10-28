@@ -1,4 +1,4 @@
-import { AlertCircle, FileImage, FileText, Upload, X } from "lucide-react";
+import { AlertCircle, Eye, FileImage, FileText, Upload, X } from "lucide-react";
 import { Button } from "@idds/react";
 import { useId, useState } from "react";
 
@@ -18,6 +18,7 @@ export default function SafeFileUpload({
   kind = "document",
   onChange,
   onRemove,
+  onPreview,
 }) {
   const inputId = useId();
   const [validationMessage, setValidationMessage] = useState("");
@@ -63,10 +64,10 @@ export default function SafeFileUpload({
       </div>
       <label htmlFor={inputId} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-interactive-primary bg-page-primary px-4 py-2 text-sm font-semibold text-content-action transition-colors hover:bg-primary-100 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-interactive-primary">
         <Upload size={16} />Pilih file
-        <input id={inputId} className="sr-only" type="file" accept={accept} onChange={selectFile} />
+        <input id={inputId} className="sr-only" type="file" accept={accept} onChange={selectFile} aria-invalid={Boolean(validationMessage)} aria-describedby={validationMessage ? `${inputId}-error` : undefined} />
       </label>
     </div>
-    {validationMessage && <div className="mt-3 flex items-start gap-2 rounded-lg bg-status-danger-subtle px-3 py-2 text-xs leading-5 text-status-danger"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{validationMessage} Silakan pilih file lain.</span></div>}
-    {file && <div className="mt-3 flex items-center justify-between gap-3 border-t border-border-subtle pt-3"><p className="min-w-0 truncate text-sm text-content-primary" title={file.name}><strong>{file.name}</strong> <span className="text-content-secondary">({formatSize(file.size)})</span></p><Button type="button" hierarchy="tertiary" size="sm" prefixIcon={<X size={15} />} onClick={removeFile}>Hapus</Button></div>}
+    {validationMessage && <div id={`${inputId}-error`} role="alert" className="mt-3 flex items-start gap-2 rounded-lg bg-status-danger-subtle px-3 py-2 text-xs leading-5 text-status-danger"><AlertCircle size={16} className="mt-0.5 shrink-0" /><span>{validationMessage} Silakan pilih file lain.</span></div>}
+    {file && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3"><p className="min-w-0 truncate text-sm text-content-primary" title={file.name}><strong>{file.name}</strong> <span className="text-content-secondary">({formatSize(file.size)})</span></p><div className="flex flex-wrap gap-2">{onPreview && <Button type="button" hierarchy="secondary" size="sm" prefixIcon={<Eye size={15} />} onClick={onPreview}>{kind === "image" ? "Preview thumbnail" : "Preview aset"}</Button>}<Button type="button" hierarchy="tertiary" size="sm" prefixIcon={<X size={15} />} onClick={removeFile}>Hapus</Button></div></div>}
   </div>;
 }

@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SelectDropdown } from "@idds/react";
 import { Search } from "lucide-react";
+import useDebouncedValue from "../hooks/useDebouncedValue";
 import { normalizeSearchOption, normalizeSearchSelections } from "../lib/search";
 
 const noRemoteSearch = () => undefined;
@@ -18,8 +19,18 @@ export default function MultipleSearchSelect({
   maxItems = 8,
   className = "",
   containerRef,
+  size,
+  inputAriaLabel,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
+  const localContainer = useRef(null);
+  const container = containerRef || localContainer;
+  // SelectDropdown renders its own input without a programmatic label. When the
+  // placeholder only shows an example, the field keeps a descriptive name.
+  useEffect(() => {
+    const input = container.current?.querySelector("input");
+    if (inputAriaLabel && input && input.getAttribute("aria-label") !== inputAriaLabel) input.setAttribute("aria-label", inputAriaLabel);
+  });
   const normalizedSelected = normalizeSearchSelections(selected, maxItems);
   const selectedKeys = new Set(normalizedSelected.map((value) => value.toLocaleLowerCase("id-ID")));
   const normalizedOptions = [];
@@ -39,7 +50,7 @@ export default function MultipleSearchSelect({
     if (!optionKeys.has(key)) normalizedOptions.unshift({ label: value, value });
   });
 
-  const normalizedTerm = searchTerm.trim().toLocaleLowerCase("id-ID");
+  const normalizedTerm = useDebouncedValue(searchTerm, 300).trim().toLocaleLowerCase("id-ID");
   const visibleOptions = normalizedOptions.filter((option) => {
     if (!normalizedTerm) return true;
     return [option.label, option.value, option.group, option.description]
@@ -57,13 +68,15 @@ export default function MultipleSearchSelect({
   };
 
   return (
-    <div ref={containerRef} className={`kms-multiple-search ${className}`.trim()}>
+    <div ref={container} className={`kms-multiple-search ${className}`.trim()}>
       <SelectDropdown
         label={label}
+        size={size}
         options={optionsWithGroups}
         selected={normalizedSelected}
         onSelect={handleSelect}
         onSearch={onSearch || noRemoteSearch}
+        searchDebounceMs={300}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         placeholder={placeholder}

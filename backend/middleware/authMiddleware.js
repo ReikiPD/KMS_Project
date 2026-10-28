@@ -1,44 +1,21 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { clearSessionCookies, getRawSessionToken, loadSession } = require("../services/sessionService");
-const {
-  hasPermission,
-  intersectPermissionMaps,
-  loadRolePermissions,
-  restrictPermissionMapToReadOnly,
-} = require("../services/permissionService");
+const { canAccessStaffAccount, delegatedPermissionMap, hasGlobalStaffScope, hasPermission, loadRolePermissions } = require("../services/permissionService");
+const { canManageStaffUnit } = require("../services/staffScopeService");
 
-const PUBLIC_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const isScopedBackofficeRole = (role) => Boolean(role) && !["user", "admin"].includes(role);
+const { PUBLIC_ID_PATTERN } = require("../utils");
+const CONTEXT_MODES = new Set(["admin-work", "admin-view", "scoped-view", "leader-view", "account-view"]);
 
 const loadContextAccount = async (publicId) => {
   const { rows } = await pool.query(
     `SELECT u.id, u.public_id, u.full_name, u.email, u.department, u.role,
-            u.work_unit_id, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
+            u.work_unit_id, u.organization_scope, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
             wu.echelon_level AS work_unit_echelon_level
      FROM users u
+     JOIN access_roles ar ON ar.code = u.role AND ar.is_backoffice = TRUE
      LEFT JOIN work_units wu ON wu.id = u.work_unit_id AND wu.deleted_at IS NULL
-     WHERE u.public_id = $1 AND u.deleted_at IS NULL
-       AND u.role <> 'user'
-     LIMIT 1`,
-    [publicId],
-  );
+     WHERE u.public_id = $1 AND u.deleted_at IS NULL LIMIT 1`, [publicId]);
   return rows[0] || null;
-};
-
-const isWorkUnitInScope = async (parentWorkUnitId, targetWorkUnitId) => {
-  if (!parentWorkUnitId || !targetWorkUnitId) return false;
-  const { rowCount } = await pool.query(
-    `WITH RECURSIVE scoped_units AS (
-       SELECT id FROM work_units WHERE id = $1 AND deleted_at IS NULL
-       UNION ALL
-       SELECT child.id FROM work_units child
-       INNER JOIN scoped_units parent_scope ON child.parent_id = parent_scope.id
-       WHERE child.deleted_at IS NULL
-     )
-     SELECT 1 FROM scoped_units WHERE id = $2 LIMIT 1`,
-    [parentWorkUnitId, targetWorkUnitId],
-  );
-  return rowCount > 0;
 };
 
 const loadAccessContext = async (req) => {
@@ -46,80 +23,46 @@ const loadAccessContext = async (req) => {
   const mode = String(req.get("X-KMS-Context-Mode") || "").trim().toLowerCase();
   const supervisorPublicId = String(req.get("X-KMS-Context-Supervisor") || "").trim().toLowerCase();
   if (!publicId && !mode && !supervisorPublicId) return null;
-  if (!PUBLIC_ID_PATTERN.test(publicId) || !mode) return { error: "Referensi akun konteks tidak valid" };
+  if (!PUBLIC_ID_PATTERN.test(publicId) || !CONTEXT_MODES.has(mode)) return { error: "Referensi akun konteks tidak valid" };
+  if (!canAccessStaffAccount(req.user)) return { error: "POST atau EDIT Daftar Staf diperlukan untuk mengakses akun. VIEW hanya membuka tabel." };
 
   const target = await loadContextAccount(publicId);
-  if (!target) return { error: "Akun konteks tidak ditemukan atau tidak aktif" };
+  if (!target || Number(target.id) === Number(req.user.id)) return { error: "Akun tujuan tidak aktif atau merupakan akun sendiri" };
+  if (!await canManageStaffUnit(req.user, target.work_unit_id)) return { error: "Akun tujuan berada di luar cakupan organisasi Anda" };
 
-  const actorRole = req.user?.role;
-  const adminModeAllowed = actorRole === "admin"
-    && ((target.role === "pegawai" && mode === "admin-work")
-      || (isScopedBackofficeRole(target.role) && mode === "admin-view"));
-  const scopedModeAllowed = isScopedBackofficeRole(actorRole)
-    && isScopedBackofficeRole(target.role)
-    && ["scoped-view", "leader-view"].includes(mode)
-    && Number(target.id) !== Number(req.user?.id)
-    && hasPermission(req.user, "staff_management", "view");
-  if (!adminModeAllowed && !scopedModeAllowed) {
-    return { error: "Anda tidak diizinkan menggunakan konteks akun tersebut" };
-  }
-
-  let scopeOwner = scopedModeAllowed ? req.user : null;
-  let sourcePermissions = req.user.permissions;
-  let workModeEnabled = !scopedModeAllowed;
+  let source = req.user;
   let supervisor = null;
-
+  const boundaries = hasGlobalStaffScope(req.user) ? [] : [req.user.work_unit_id];
   if (supervisorPublicId) {
-    if (!PUBLIC_ID_PATTERN.test(supervisorPublicId)
-      || actorRole !== "admin"
-      || mode !== "admin-view"
-      || !isScopedBackofficeRole(target.role)) {
-      return { error: "Referensi pemilik cakupan akun tidak valid" };
-    }
+    if (!PUBLIC_ID_PATTERN.test(supervisorPublicId)) return { error: "Referensi pemilik cakupan tidak valid" };
     supervisor = await loadContextAccount(supervisorPublicId);
-    if (!supervisor || !isScopedBackofficeRole(supervisor.role) || Number(supervisor.id) === Number(target.id)) {
-      return { error: "Akun pemilik cakupan tidak ditemukan atau tidak aktif" };
-    }
-    const supervisorPermissions = await loadRolePermissions(supervisor.role);
-    if (!hasPermission({ permissions: supervisorPermissions }, "staff_management", "view")) {
-      return { error: "Role pemilik cakupan tidak memiliki akses VIEW Manajemen Pegawai" };
-    }
-    sourcePermissions = intersectPermissionMaps(req.user.permissions, supervisorPermissions);
-    scopeOwner = supervisor;
-    workModeEnabled = hasPermission({ permissions: supervisorPermissions }, "staff_management", "post");
-  } else if (scopedModeAllowed) {
-    workModeEnabled = hasPermission(req.user, "staff_management", "post");
+    if (!supervisor || [Number(target.id), Number(req.user.id)].includes(Number(supervisor.id))
+      || !await canManageStaffUnit(req.user, supervisor.work_unit_id)) return { error: "Pemilik cakupan tidak valid atau berada di luar unit Anda" };
+    source = { ...supervisor, environmentAdmin: false,
+      permissions: delegatedPermissionMap(req.user, await loadRolePermissions(supervisor.role), {
+        readOnly: !hasPermission(req.user, "staff_management", "edit"),
+      }) };
+    if (!canAccessStaffAccount(source)) return { error: "Akun pemilik cakupan tidak memiliki POST atau EDIT Daftar Staf" };
+    if (!await canManageStaffUnit(source, target.work_unit_id)) return { error: "Akun tujuan berada di luar cakupan pemilik akun" };
+    if (!hasGlobalStaffScope(source)) boundaries.push(source.work_unit_id);
   }
 
-  if (scopeOwner) {
-    if (!scopeOwner.work_unit_id || !target.work_unit_id) {
-      return { error: "Akun pemilik cakupan atau akun tujuan belum memiliki Unit Kerja yang valid" };
-    }
-    if (!await isWorkUnitInScope(scopeOwner.work_unit_id, target.work_unit_id)) {
-      return { error: "Akun tujuan berada di luar cakupan organisasi akun Anda" };
-    }
-  }
-
-  const targetPermissions = await loadRolePermissions(target.role);
-  const directAdminScopedContext = adminModeAllowed
-    && mode === "admin-view"
-    && !supervisor
-    && isScopedBackofficeRole(target.role);
-  if (directAdminScopedContext) {
-    workModeEnabled = hasPermission({ permissions: targetPermissions }, "staff_management", "post");
-  }
-  const requiresWorkModeGate = Boolean(scopeOwner) || directAdminScopedContext;
-  const effectivePermissions = intersectPermissionMaps(sourcePermissions, targetPermissions);
+  const readOnly = !hasPermission(source, "staff_management", "edit");
+  const permissions = delegatedPermissionMap(source, await loadRolePermissions(target.role), { readOnly });
   return {
     ...target,
-    public_id: String(target.public_id),
-    mode,
+    public_id: String(target.public_id), environmentAdmin: false, mode,
     supervisor_public_id: supervisor ? String(supervisor.public_id) : null,
-    read_only: Boolean(requiresWorkModeGate && !workModeEnabled),
-    permissions: requiresWorkModeGate && !workModeEnabled
-      ? restrictPermissionMapToReadOnly(effectivePermissions)
-      : effectivePermissions,
+    supervisor: supervisor ? { id: supervisor.id, public_id: String(supervisor.public_id), full_name: supervisor.full_name, role: supervisor.role } : null,
+    read_only: readOnly,
+    staff_scope_boundaries: [...new Set(boundaries.filter(Boolean))],
+    permissions,
   };
+};
+
+const getStaffAccessContext = (req, res) => {
+  if (!req.accessContext) return res.status(400).json({ error: "Pilih akun yang ingin diakses terlebih dahulu" });
+  return res.json({ account: req.accessContext });
 };
 
 const verifyToken = async (req, res, next) => {
@@ -134,6 +77,9 @@ const verifyToken = async (req, res, next) => {
     const accessContext = await loadAccessContext(req);
     if (accessContext?.error) return reject(res, accessContext.error);
     req.accessContext = accessContext;
+    if (accessContext?.read_only && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      return reject(res, "Akses akun ini baca-saja. EDIT Daftar Staf diperlukan untuk melakukan perubahan.");
+    }
     return next();
   } catch {
     clearSessionCookies(res);
@@ -207,4 +153,4 @@ const requirePersistentUser = (req, res, next) => {
   return next();
 };
 
-module.exports = { verifyToken, optionalToken, requireBackoffice, requireAssetWrite, requireAdmin, requireAdminWorkspace, requireCommenter, requirePegawai, requirePermission, requirePersistentUser };
+module.exports = { loadAccessContext, getStaffAccessContext, verifyToken, optionalToken, requireBackoffice, requireAssetWrite, requireAdmin, requireAdminWorkspace, requireCommenter, requirePegawai, requirePermission, requirePersistentUser };

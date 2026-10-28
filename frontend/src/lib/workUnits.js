@@ -29,6 +29,53 @@ const FULL_NAME_ALIASES = new Map([
 
 const CONNECTOR_WORDS = new Set(["dan", "dari", "ke", "pada", "serta", "untuk", "yang"]);
 
+// Match names/aliases rather than database IDs, which differ between environments.
+// Education and research take precedence over the transport mode in their name.
+const UNIT_VISUAL_RULES = [
+  ["education", /\b(?:bpsdmp?|ppsdm|pusbangsdm|politeknik|akademi|pusdiklat)\b|sumber daya manusia|pendidikan|pelatihan/],
+  ["policy", /\b(?:bkt|balitbang)\b|kebijakan|penelitian|kajian/],
+  ["secretariat", /\b(?:setjen|sekjen)\b|sekretariat jend(?:e)?ral/],
+  ["inspectorate", /\bitjen\b|inspektorat/],
+  ["office", /\bpusdatin\b|sekretariat|pusat data/],
+  ["multimodal", /\b(?:intram|bptj)\b|multimoda|integrasi (?:antar ?moda|transportasi)|jabodetabek/],
+  ["rail", /perkeretaapian|kereta api|\b(?:djka|ditjen ka)\b/],
+  ["sea", /perhubungan laut|pelayaran|pelabuhan|\b(?:hubla|djpl)\b/],
+  ["air", /perhubungan udara|penerbangan|bandar udara|\b(?:hubud|djpu)\b/],
+  ["road", /perhubungan darat|angkutan jalan|\b(?:hubdat|djpd)\b/],
+];
+
+export const workUnitVisualKind = (unit) => {
+  const identity = [unit?.name, unit?.alias]
+    .filter(value => typeof value === "string")
+    .join(" ")
+    .normalize("NFKC")
+    .toLocaleLowerCase("id-ID")
+    .replace(/[^\p{L}\p{N}]+/gu, " ");
+  return UNIT_VISUAL_RULES.find(([, pattern]) => pattern.test(identity))?.[0] || "office";
+};
+
+// Backoffice lists already carry the hierarchy. Reuse it without an extra API
+// request, preferring a unit's own uploaded logo over its ancestor's identity.
+export const workUnitLogoIdentity = (unit, units = []) => {
+  if (!unit || unit.logo_url) return unit;
+  const byId = new Map(units.map(item => [String(item.id), item]));
+  const seen = new Set();
+  let current = unit;
+  while (current.parent_id && !seen.has(String(current.id))) {
+    seen.add(String(current.id));
+    const parent = byId.get(String(current.parent_id));
+    if (!parent) break;
+    current = parent;
+    if (current.logo_url) return current;
+  }
+  if (current !== unit) return current;
+  if (unit.grandparent_name || unit.parent_name) return {
+    name: unit.grandparent_name || unit.parent_name, alias: unit.grandparent_alias || unit.parent_alias,
+    logo_url: unit.grandparent_name ? unit.grandparent_logo_url : unit.parent_logo_url,
+  };
+  return unit;
+};
+
 export const workUnitFullName = (value) => {
   const sourceName = String(value || "").trim().replace(/\s+/g, " ");
   if (!sourceName) return "";

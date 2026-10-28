@@ -8,6 +8,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { formatRelativeTime } from "../lib/dateTime";
 import useAdminView from "../hooks/useAdminView";
 import AccessibilityMenu from "./AccessibilityMenu";
+import KmsPublicBrand from "./KmsPublicBrand";
 import { adminAssetPath, publicAssetPath } from "../lib/routes";
 import { hasPermission } from "../lib/permissions";
 
@@ -22,13 +23,14 @@ const notificationMeta = {
   reply: { icon: Reply, text: "membalas komentar pada", actorFallback: "Seseorang" },
   share: { icon: Share2, text: "membagikan", actorFallback: "Seseorang" },
   asset_submitted: { icon: ClipboardCheck, text: "mengajukan untuk diverifikasi", actorFallback: "Pegawai" },
+  asset_assigned: { icon: UserRoundCheck, text: "menugaskan verifikasi", actorFallback: "Koordinator verifikasi" },
   asset_approved: { icon: CircleCheck, text: "menyetujui dan menerbitkan", actorFallback: "Verifikator KMS" },
   asset_revision: { icon: RotateCcw, text: "meminta perbaikan pada", actorFallback: "Verifikator KMS" },
   asset_rejected: { icon: XCircle, text: "menolak publikasi", actorFallback: "Verifikator KMS" },
 };
 
 export default function Navbar() {
-  const { isSidebarOpen, toggleSidebar, toggleMobileSidebar } = useContext(SidebarContext);
+  const { isSidebarOpen, isMobileSidebarOpen, isDrawer, toggleSidebar, toggleMobileSidebar } = useContext(SidebarContext);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { accessUser, isNestedScopedContext, isEmployeeContext, staffMember, staffLoading, exitEmployeeContext } = useAdminView();
@@ -41,7 +43,7 @@ export default function Navbar() {
   const canViewProfile = !isEmployeeContext && hasStoredProfile && hasPermission(permissionUser, "profile", "view");
   const canViewNotifications = !isEmployeeContext && hasStoredProfile;
   const handleBrandClick = () => {
-    if (window.matchMedia("(max-width: 767px)").matches) toggleMobileSidebar();
+    if (isDrawer) toggleMobileSidebar();
     else navigate("/");
   };
 
@@ -64,16 +66,18 @@ export default function Navbar() {
     loadNotifications();
     const interval = window.setInterval(loadNotifications, 60000);
     window.addEventListener("focus", loadNotifications);
+    window.addEventListener("kms-notifications-updated", loadNotifications);
     return () => {
       active = false;
       window.clearInterval(interval);
       window.removeEventListener("focus", loadNotifications);
+      window.removeEventListener("kms-notifications-updated", loadNotifications);
     };
   }, [canViewNotifications]);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login/pegawai");
+  const handleLogout = () => {
+    const performLogout = async () => { await logout(); navigate("/login/pegawai"); };
+    if (window.dispatchEvent(new CustomEvent("kms-before-context-change", { cancelable: true, detail: performLogout }))) performLogout();
   };
 
   const markAllRead = async () => {
@@ -111,7 +115,7 @@ export default function Navbar() {
       }
     }
     setIsNotificationsOpen(false);
-    if (notification.type === "asset_submitted") {
+    if (["asset_submitted", "asset_assigned"].includes(notification.type)) {
       const params = new URLSearchParams();
       if (notification.asset_title) params.set("q", notification.asset_title);
       navigate(`/admin/asset-verification${params.size ? `?${params}` : ""}`);
@@ -132,10 +136,9 @@ export default function Navbar() {
       <div className="kms-admin-topbar-primary flex min-w-0 items-center gap-3">
         <div className="kms-admin-topbar-identity kms-on-brand flex min-w-0 items-center gap-2.5">
           <button type="button" onClick={handleBrandClick} className="kms-admin-brand-link flex min-w-0 items-center gap-2.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80" aria-label="Buka navigasi pada ponsel atau kembali ke beranda">
-            <span className="kms-admin-topbar-mark" aria-hidden="true"><img src="/LOGO_KEMENTERIAN_PERHUBUNGAN_REPUBLIK_INDONESIA.png" alt="" /></span>
-            <span className="hidden min-w-0 leading-tight sm:block"><span className="block truncate text-xs font-bold tracking-tight">Knowledge Management System</span><span className="kms-on-brand-muted block truncate text-[10px]">Kementerian Perhubungan</span></span>
+            <KmsPublicBrand compact inverse />
           </button>
-          <Button hierarchy="tertiary" size="sm" className="kms-admin-topbar-action hidden md:inline-flex" onClick={toggleSidebar} aria-label={isSidebarOpen ? "Ringkas sidebar" : "Perluas sidebar"}>
+          <Button hierarchy="tertiary" size="sm" className="kms-admin-topbar-action" onClick={isDrawer ? toggleMobileSidebar : toggleSidebar} aria-controls="kms-sidebar" aria-expanded={isDrawer ? isMobileSidebarOpen : isSidebarOpen} aria-label={isDrawer ? "Buka menu navigasi" : isSidebarOpen ? "Ringkas sidebar" : "Perluas sidebar"}>
             {isSidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeft size={18} />}
           </Button>
           <span className="kms-topbar-separator hidden h-5 w-px sm:block" aria-hidden="true" />

@@ -1,11 +1,15 @@
+import ValidatedForm from "../../../components/ValidatedForm";
+import ResponsiveTable from "../../../components/ResponsiveTable";
+import ListToolbar from "../../../components/ListToolbar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
   Badge,
   Button,
-  Card,
+  CardPlain,
   Modal,
+  Pagination,
   SelectDropdown,
   Skeleton,
   TextArea,
@@ -30,7 +34,14 @@ import {
   Trash2,
 } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
+import useFormDraftGuard from "../../../hooks/useFormDraftGuard";
+import FormDraftStatus from "../../../components/FormDraftStatus";
 import EmptyState from "../../../components/EmptyState";
+import WorkUnitLogo from "../../../components/WorkUnitLogo";
+import CategoryLogo from "../../../components/CategoryLogo";
+import LogoPicker from "../../../components/LogoPicker";
+import useDebouncedValue from "../../../hooks/useDebouncedValue";
+import { workUnitLogoIdentity } from "../../../lib/workUnits";
 import { apiFetch, inputValue } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
 import useAdminView from "../../../hooks/useAdminView";
@@ -97,6 +108,7 @@ const EMPTY_FORM = {
   echelonLevel: "1",
   parentId: "",
   isPublic: true,
+  logoChange: "",
 };
 
 const ECHELON_OPTIONS = [
@@ -127,7 +139,12 @@ export default function MasterDataPage({ type }) {
   const { toast } = useToast();
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [logoFile, setLogoFile] = useState(null);
+  const [removeLogo, setRemoveLogo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [expandedWorkUnits, setExpandedWorkUnits] = useState(() => new Set());
@@ -155,7 +172,7 @@ export default function MasterDataPage({ type }) {
   useEffect(() => { loadItems(); }, [loadItems]);
 
   const filteredItems = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("id-ID");
+    const term = debouncedQuery.trim().toLocaleLowerCase("id-ID");
     if (!isWorkUnit) {
       if (!term) return items;
       return items.filter((item) => [item.name, item.description]
@@ -188,7 +205,7 @@ export default function MasterDataPage({ type }) {
       }
     });
     return items.filter((item) => visibleIds.has(Number(item.id)));
-  }, [expandedWorkUnits, isWorkUnit, items, query]);
+  }, [expandedWorkUnits, isWorkUnit, items, debouncedQuery]);
 
   const toggleWorkUnit = (id) => {
     setExpandedWorkUnits((current) => {
@@ -206,8 +223,11 @@ export default function MasterDataPage({ type }) {
       value: String(item.id),
     })), [editTarget?.id, form.echelonLevel, items]);
 
+  const guard = useFormDraftGuard(form, formOpen);
   const resetForm = () => {
     setForm(EMPTY_FORM);
+    setLogoFile(null);
+    setRemoveLogo(false);
     setEditTarget(null);
     setError("");
   };
@@ -218,6 +238,8 @@ export default function MasterDataPage({ type }) {
   };
 
   const openEditModal = (item) => {
+    setLogoFile(null);
+    setRemoveLogo(false);
     setEditTarget(item);
     setForm({
       name: item.name || "",
@@ -226,6 +248,7 @@ export default function MasterDataPage({ type }) {
       echelonLevel: String(item.echelon_level || 1),
       parentId: item.parent_id ? String(item.parent_id) : "",
       isPublic: item.is_public !== false,
+      logoChange: "",
     });
     setError("");
     setFormOpen(true);
@@ -233,8 +256,7 @@ export default function MasterDataPage({ type }) {
 
   const closeFormModal = () => {
     if (saving) return;
-    setFormOpen(false);
-    resetForm();
+    guard.requestLeave(() => { setFormOpen(false); resetForm(); });
   };
 
   const updateForm = (key, value) => {
@@ -266,11 +288,18 @@ export default function MasterDataPage({ type }) {
             isPublic: form.isPublic,
           };
       const editing = Boolean(editTarget);
+      const multipart = Boolean(logoFile || removeLogo);
+      const payload = multipart ? new FormData() : JSON.stringify(body);
+      if (multipart) {
+        Object.entries(body).forEach(([key, value]) => payload.append(key, value === null ? "" : String(value)));
+        payload.append("removeLogo", String(removeLogo));
+        if (logoFile) payload.append("logo", logoFile);
+      }
       const response = await apiFetch(editing ? `${config.endpoint}/${editTarget.id}` : config.endpoint, {
         method: editing ? "PUT" : "POST",
         auth: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers: multipart ? undefined : { "Content-Type": "application/json" },
+        body: payload,
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `Gagal menyimpan ${config.itemLabel}`);
@@ -338,12 +367,18 @@ export default function MasterDataPage({ type }) {
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleItems = isWorkUnit ? filteredItems : filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  useEffect(() => setPage(current => Math.min(current, totalPages)), [totalPages]);
+  const searchItems = value => { setQuery(inputValue(value)); setPage(1); };
   const EmptyIcon = config.icon;
   const formIsValid = form.name.trim()
     && (!isWorkUnit || (form.alias.trim() && (form.echelonLevel === "1" || form.parentId)));
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
+      <FormDraftStatus guard={guard} />
       <AdminPageHeader
         eyebrow="Manajemen Pengetahuan"
         title={config.title}
@@ -352,18 +387,18 @@ export default function MasterDataPage({ type }) {
         actions={canCreate ? <Button hierarchy="primary" prefixIcon={<Plus size={16} />} onClick={openCreateModal}>{config.addLabel}</Button> : null}
       />
 
-      <Card className="kms-admin-surface p-5">
+      <CardPlain className="kms-admin-surface kms-master-data-list p-5">
         <div className="kms-admin-panel-heading">
           <div className="flex gap-3">
             <span className="kms-admin-panel-heading-icon"><LayoutList size={18} /></span>
             <div><h2>{config.listTitle}</h2><p>{config.listDescription(items.length)}</p></div>
           </div>
         </div>
-        <div className="kms-admin-toolbar mb-4">
+        <ListToolbar className="kms-admin-toolbar mb-4">
           <div className="min-w-0 flex-1">
-            <TextField label={config.searchLabel} value={query} onChange={(value) => setQuery(inputValue(value))} placeholder={config.searchPlaceholder} prefixIcon={<Search size={16} />} />
+            <TextField label={config.searchLabel} value={query} onChange={searchItems} placeholder={config.searchPlaceholder} prefixIcon={<Search size={16} />} />
           </div>
-        </div>
+        </ListToolbar>
 
         {error && !formOpen && <div className="mb-4"><Alert variant="critical" title="Data belum dapat dimuat" message={error} /></div>}
         {loading ? (
@@ -371,8 +406,8 @@ export default function MasterDataPage({ type }) {
         ) : filteredItems.length === 0 ? (
           <EmptyState className="kms-empty-state--compact" icon={EmptyIcon} title={query ? config.notFoundTitle : config.emptyTitle} description={query ? config.notFoundDescription : config.emptyDescription} actionLabel={query ? "Hapus pencarian" : undefined} onAction={query ? () => setQuery("") : undefined} />
         ) : (
-          <div className={`kms-admin-native-table-shell ${isWorkUnit ? "kms-admin-native-table-shell--fluid" : ""}`}>
-            <table className={`kms-admin-native-table text-left ${isWorkUnit ? "min-w-[64rem]" : "min-w-[34rem]"}`}>
+          <div className="kms-admin-native-table-shell kms-admin-native-table-shell--fluid">
+            <ResponsiveTable label={config.title} minTableWidth={isWorkUnit ? 1024 : 544} className={`kms-admin-native-table kms-reference-responsive text-left ${isWorkUnit ? "min-w-[64rem]" : "min-w-[34rem]"}`}>
               <thead>
                 <tr>
                   <th className="px-4 py-3 font-semibold">Nama {config.title}</th>
@@ -381,7 +416,7 @@ export default function MasterDataPage({ type }) {
                   <th className="w-32 px-4 py-3 text-right font-semibold">Aksi</th>
                 </tr>
               </thead>
-              <tbody>{filteredItems.map((item) => {
+              <tbody>{visibleItems.map((item) => {
                 const level = Number(item.echelon_level || 1);
                 const isChild = level > 1;
                 const hasChildren = Number(item.child_count || 0) > 0;
@@ -393,8 +428,10 @@ export default function MasterDataPage({ type }) {
                 return (
                   <tr key={item.id}>
                     <td className="px-4 py-3">
-                      <div className="flex items-start gap-2" style={{ paddingLeft: `${Math.max(0, level - 1) * 1.5}rem` }}>
+                      <div className="kms-admin-unit-name flex items-center gap-2" style={{ paddingLeft: isWorkUnit ? `${Math.max(0, level - 1) * 1.5}rem` : undefined }}>
                         {isChild && <GitBranch className="mt-0.5 shrink-0 text-content-guide" size={16} aria-hidden="true" />}
+                        {isWorkUnit && <WorkUnitLogo unit={workUnitLogoIdentity(item, items)} className="kms-admin-unit-logo" />}
+                        {!isWorkUnit && item.logo_url && <CategoryLogo category={item} size={32} />}
                         {hasChildren ? (
                           <button type="button" className="kms-work-unit-tree-trigger group -m-2 flex w-full items-start gap-2 rounded-lg p-2 text-left" onClick={() => toggleWorkUnit(item.id)} aria-expanded={expanded}>
                             {expanded ? <ChevronDown className="mt-0.5 shrink-0 text-content-action" size={17} /> : <ChevronRight className="mt-0.5 shrink-0 text-content-action" size={17} />}
@@ -402,8 +439,9 @@ export default function MasterDataPage({ type }) {
                           </button>
                         ) : <p className="font-semibold text-content-primary">{item.name}</p>}
                       </div>
+                      <details className="kms-mobile-row-details"><summary>Rincian tambahan</summary>{isWorkUnit ? <><p>{item.alias || "Tanpa alias"} · Eselon {ECHELON_ROMAN[level]}</p><p>{item.parent_name || "Unit tingkat pertama"}</p><p>{Number(item.published_asset_count || 0)} aset terbit</p></> : <p>{item.description || "Belum ada deskripsi"}</p>}</details>
                     </td>
-                    {config.hasDescription && <td className="px-4 py-3"><span className="line-clamp-2 max-w-md">{item.description || "Belum ada deskripsi"}</span></td>}
+                    {config.hasDescription && <td className="kms-category-description px-4 py-3">{item.description || "Belum ada deskripsi"}</td>}
                     {isWorkUnit && <>
                       <td className="px-4 py-3">{item.alias ? <Badge type="soft" variant="brand" size="sm">{item.alias}</Badge> : <span aria-label="Alias belum tersedia">-</span>}</td>
                       <td className="px-4 py-3"><p className="font-semibold text-content-primary">Eselon {ECHELON_ROMAN[level]}</p>{isChild && <p className="mt-0.5 text-xs text-content-secondary">{item.parent_name || "-"}</p>}</td>
@@ -426,17 +464,24 @@ export default function MasterDataPage({ type }) {
                   </tr>
                 );
               })}</tbody>
-            </table>
+            </ResponsiveTable>
           </div>
         )}
-      </Card>
+        {!isWorkUnit && !loading && filteredItems.length > 0 && <div className="kms-master-data-pagination">
+          <p role="status">Menampilkan {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredItems.length)} dari {filteredItems.length} kategori</p>
+          <Pagination currentPage={currentPage} totalPages={totalPages} pageSize={pageSize} pageSizeOptions={[10, 20, 50]} onPageChange={setPage} onPageSizeChange={value => { setPageSize(value); setPage(1); }} fullWidth />
+        </div>}
+      </CardPlain>
 
       <Modal open={formOpen} onClose={closeFormModal} title={editTarget ? `Edit ${config.itemLabel}` : config.modalTitle} dialogClassname="ina-modal__dialog--size-md">
-        <p className="mb-5 text-sm text-content-secondary">{editTarget ? "Perbarui identitas, posisi organisasi, dan status publikasi Unit Kerja." : config.modalDescription}</p>
+        <p className="mb-5 text-sm text-content-secondary">{editTarget ? isWorkUnit ? "Perbarui identitas, posisi organisasi, dan status publikasi Unit Kerja." : "Perbarui nama, deskripsi, dan logo kategori. Logo juga digunakan ketika topik direkomendasikan di beranda." : config.modalDescription}</p>
         {error && <div className="mb-4"><Alert variant="critical" title={`${config.title} belum tersimpan`} message={error} /></div>}
-        <form onSubmit={saveItem} className="flex flex-col gap-4">
+        <ValidatedForm busy={saving} onSubmit={saveItem} className="flex flex-col gap-4">
           <TextField label={config.nameLabel} value={form.name} onChange={(value) => updateForm("name", inputValue(value))} placeholder={config.namePlaceholder} maxLength={100} required />
           {config.hasDescription && <TextArea label="Deskripsi singkat" value={form.description} onChange={(value) => updateForm("description", inputValue(value))} placeholder="Jelaskan cakupannya secara singkat" rows={4} />}
+          <LogoPicker key={`${type}-${editTarget?.id || "new"}`} file={logoFile} existing={editTarget?.logo_url} removed={removeLogo} disabled={saving}
+            onChange={file => { setLogoFile(file); setRemoveLogo(false); updateForm("logoChange", `${file.name}:${file.size}:${file.lastModified}`); }}
+            onRemove={() => { setLogoFile(null); setRemoveLogo(Boolean(editTarget?.logo_url)); updateForm("logoChange", editTarget?.logo_url ? "remove" : ""); }} />
           {isWorkUnit && <>
             <TextField label="Alias / singkatan" value={form.alias} onChange={(value) => updateForm("alias", inputValue(value))} placeholder="Misal: BKT atau Ditjen Hubdat" maxLength={40} helperText="Gunakan singkatan resmi yang mudah dikenali." required />
             <SelectDropdown label="Tingkat organisasi" options={ECHELON_OPTIONS} selected={form.echelonLevel} onSelect={(value) => updateForm("echelonLevel", String(value))} searchable={false} indicator="check" required disabled={Boolean(editTarget && Number(editTarget.child_count) > 0)} />
@@ -450,12 +495,12 @@ export default function MasterDataPage({ type }) {
             </div>
           </>}
           <div className="kms-modal-actions mt-3 flex justify-end gap-3"><Button type="button" hierarchy="secondary" onClick={closeFormModal} disabled={saving}>Batal</Button><Button type="submit" hierarchy="primary" prefixIcon={editTarget ? <Pencil size={16} /> : <Plus size={16} />} disabled={saving || !formIsValid}>{saving ? "Menyimpan..." : editTarget ? "Simpan perubahan" : `Simpan ${config.itemLabel}`}</Button></div>
-        </form>
+        </ValidatedForm>
       </Modal>
 
       <Modal open={Boolean(deleteTarget)} onClose={() => !saving && setDeleteTarget(null)} title={`Hapus ${config.itemLabel}`} dialogClassname="ina-modal__dialog--size-md">
         <p className="text-content-secondary"><strong className="text-content-primary">{deleteTarget?.name}</strong> — {config.deleteQuestion}</p>
-        {isWorkUnit && Number(deleteTarget?.child_count || 0) > 0 && <div className="mt-4"><Alert variant="warning" title="Masih memiliki cabang" message="Pindahkan atau hapus seluruh unit di bawah Unit Kerja ini terlebih dahulu." /></div>}
+        {isWorkUnit && Number(deleteTarget?.child_count || 0) > 0 && <div className="mt-4"><Alert variant="caution" title="Masih memiliki cabang" message="Pindahkan atau hapus seluruh unit di bawah Unit Kerja ini terlebih dahulu." /></div>}
         <div className="kms-modal-actions mt-8 flex justify-end gap-3"><Button hierarchy="secondary" onClick={() => setDeleteTarget(null)} disabled={saving}>Batal</Button><Button hierarchy="primary" className="kms-text-on-color !border-red-600 !bg-red-600 hover:!border-red-700 hover:!bg-red-700" onClick={deleteItem} disabled={saving || (isWorkUnit && Number(deleteTarget?.child_count || 0) > 0)}>{saving ? "Menghapus..." : "Ya, hapus"}</Button></div>
       </Modal>
     </div>

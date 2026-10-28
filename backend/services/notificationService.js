@@ -1,4 +1,4 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 
 const createNotification = async ({ recipientId, actorId = null, assetId, commentId = null, type }, database = pool) => {
   if (!recipientId || !assetId || !type) return null;
@@ -29,7 +29,7 @@ const notifyPublicationReviewers = async ({ actorId, assetId, workUnitId }, data
        WHERE parent.deleted_at IS NULL
      )
      INSERT INTO notifications (recipient_id, actor_id, asset_id, type)
-     SELECT DISTINCT account.id, $1, $2, 'asset_submitted'
+     SELECT DISTINCT account.id, $1::integer, $2::integer, 'asset_submitted'
      FROM users account
      INNER JOIN role_permissions permission
        ON permission.role = account.role
@@ -37,8 +37,8 @@ const notifyPublicationReviewers = async ({ actorId, assetId, workUnitId }, data
       AND permission.can_view = TRUE
       AND permission.can_edit = TRUE
      WHERE account.deleted_at IS NULL
-       AND account.id <> $1
-       AND account.work_unit_id IN (SELECT id FROM unit_ancestors)
+       AND account.id <> $1::integer
+       AND (account.organization_scope = 'all' OR account.work_unit_id IN (SELECT id FROM unit_ancestors))
      RETURNING id, recipient_id`,
     [actorId, assetId, workUnitId],
   );

@@ -1,3 +1,4 @@
+import ValidatedForm from "../../../components/ValidatedForm";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -16,6 +17,9 @@ import {
 } from "@idds/react";
 import { Edit, Image as ImageIcon, Megaphone, Plus, Search, Trash2 } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
+import useFormDraftGuard from "../../../hooks/useFormDraftGuard";
+import FormDraftStatus from "../../../components/FormDraftStatus";
+import useDebouncedValue from "../../../hooks/useDebouncedValue";
 import EmptyState from "../../../components/EmptyState";
 import { apiFetch, apiUpload, inputValue, uploadUrl } from "../../../lib/api";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -45,6 +49,7 @@ export default function AnnouncementsPage() {
   const [assetOptions, setAssetOptions] = useState([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -80,11 +85,12 @@ export default function AnnouncementsPage() {
   useEffect(() => { loadItems(); }, [loadItems]);
 
   const filteredItems = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("id-ID");
+    const term = debouncedQuery.trim().toLocaleLowerCase("id-ID");
     if (!term) return items;
     return items.filter((item) => `${item.title} ${item.content} ${item.asset?.title || ""}`.toLocaleLowerCase("id-ID").includes(term));
-  }, [items, query]);
+  }, [items, debouncedQuery]);
 
+  const guard = useFormDraftGuard({ form, image: imageFile ? [imageFile.name, imageFile.size, imageFile.lastModified] : null, removeImage }, formOpen);
   const resetForm = () => {
     setForm(EMPTY_FORM);
     setEditTarget(null);
@@ -118,8 +124,7 @@ export default function AnnouncementsPage() {
 
   const closeForm = () => {
     if (saving) return;
-    setFormOpen(false);
-    resetForm();
+    guard.requestLeave(() => { setFormOpen(false); resetForm(); });
   };
 
   const updateForm = (key, value) => {
@@ -206,6 +211,7 @@ export default function AnnouncementsPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
+      <FormDraftStatus guard={guard} />
       <AdminPageHeader
         eyebrow="Informasi Publik"
         title="Pengumuman"
@@ -254,7 +260,7 @@ export default function AnnouncementsPage() {
       <Modal open={formOpen} onClose={closeForm} title={editTarget ? "Edit pengumuman" : "Tambah pengumuman"} dialogClassname="ina-modal__dialog--size-lg">
         <p className="mb-5 text-sm text-content-secondary">Gunakan bahasa singkat dan jelas. Pengumuman dapat berdiri sendiri atau mengarahkan pengguna ke aset pengetahuan terbit.</p>
         {error && <div className="mb-4"><Alert variant="critical" title="Pengumuman belum tersimpan" message={error} /></div>}
-        <form onSubmit={saveAnnouncement} className="grid gap-4">
+        <ValidatedForm busy={saving} onSubmit={saveAnnouncement} className="grid gap-4">
           <SelectDropdown
             label="Jenis pengumuman"
             options={[
@@ -304,7 +310,7 @@ export default function AnnouncementsPage() {
             <div className="kms-mobile-split-row flex items-center justify-between gap-4"><div><p className="font-semibold text-content-primary">Tampilkan di beranda</p><p className="mt-1 text-xs leading-5 text-content-secondary">Draf hanya terlihat pada halaman pengelolaan Admin.</p></div><Toggle checked={form.isPublished} onChange={(checked) => updateForm("isPublished", checked)} aria-label="Tampilkan pengumuman di beranda" /></div>
           </div>
           <div className="kms-modal-actions mt-2 flex justify-end gap-3"><Button type="button" hierarchy="secondary" onClick={closeForm} disabled={saving}>Batal</Button><Button type="submit" hierarchy="primary" disabled={saving}>{saving ? "Menyimpan…" : editTarget ? "Simpan perubahan" : "Simpan pengumuman"}</Button></div>
-        </form>
+        </ValidatedForm>
       </Modal>
 
       <Modal open={Boolean(deleteTarget)} onClose={() => !saving && setDeleteTarget(null)} title="Hapus pengumuman" dialogClassname="ina-modal__dialog--size-md">

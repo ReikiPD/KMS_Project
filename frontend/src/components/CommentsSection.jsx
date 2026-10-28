@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { MessageCircle, Pencil, Reply, Send, Trash2 } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { LogIn, MessageCircle, Pencil, Reply, Send, Trash2 } from "lucide-react";
 import { Alert, Avatar, Button, Card, Skeleton, TextArea, useToast } from "@idds/react";
 import { apiFetch, avatarUrl } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
+import EmptyState from "./EmptyState";
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -127,9 +128,11 @@ function CommentNode({ comment, depth, user, canWriteComment, actionId, replying
   );
 }
 
-export default function CommentsSection({ assetId, canModerate = false }) {
+export default function CommentsSection({ assetId, canModerate = false, publicVisuals = false }) {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [comments, setComments] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -224,13 +227,17 @@ export default function CommentsSection({ assetId, canModerate = false }) {
     );
   };
 
+  // Public empty discussion: the empty state carries the sign-in action, so the guest note is not repeated.
+  const guestEmptyAction = publicVisuals && !user && !loading && !error && comments.length === 0;
+  const loginPath = `/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`;
+
   return (
     <section className="mt-10" aria-labelledby="comments-heading">
-      <Card className="overflow-hidden" title={<span id="comments-heading" className="flex items-center gap-2"><MessageCircle size={20} /> Diskusi ({totalItems})</span>} description="Bagikan pengalaman, pertanyaan, atau praktik baik terkait pengetahuan ini.">
+      <Card className={`${publicVisuals ? "kms-comments-section" : ""} overflow-hidden`} title={<span id="comments-heading" className="flex items-center gap-2"><MessageCircle size={20} /> Diskusi ({totalItems})</span>} description="Bagikan pengalaman, pertanyaan, atau praktik baik terkait pengetahuan ini.">
         <div className="px-4 pb-5 md:px-6">
           {canWriteComment ? (
             <CommentComposer label="Tambahkan komentar" busy={Boolean(actionId)} onSubmit={(content) => createComment(content)} />
-          ) : (
+          ) : !guestEmptyAction && !(publicVisuals && !user && loading) && (
             <div className="mt-4 rounded-lg bg-surface-secondary p-4 text-sm text-content-secondary">
               {user ? "Akun ini memiliki akses baca untuk diskusi." : <>Ingin ikut berdiskusi? <Link className="font-semibold text-content-guide" to="/login">Masuk</Link> untuk menulis komentar atau membalas diskusi.</>}
             </div>
@@ -260,6 +267,8 @@ export default function CommentsSection({ assetId, canModerate = false }) {
                 />
               ))}
             </ol>
+          ) : publicVisuals ? (
+            !error && <EmptyState className="mt-6" illustration="empty-discussion" title="Belum ada diskusi" description="Jadilah yang pertama berbagi pengalaman atau pertanyaan tentang pengetahuan ini." actionLabel={guestEmptyAction ? "Masuk untuk berdiskusi" : undefined} actionIcon={<LogIn size={17} aria-hidden="true" />} actionSize="md" onAction={guestEmptyAction ? () => navigate(loginPath) : undefined} />
           ) : (
             <div className="mt-6 rounded-lg border border-dashed border-stroke-primary px-5 py-8 text-center text-sm text-content-secondary">Belum ada komentar. Jadilah yang pertama memulai diskusi.</div>
           )}

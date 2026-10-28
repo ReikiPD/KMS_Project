@@ -1,3 +1,0 @@
-ALTER TABLE knowledge_assets
-ADD COLUMN IF NOT EXISTS allow_download BOOLEAN NOT NULL DEFAULT TRUE;
-

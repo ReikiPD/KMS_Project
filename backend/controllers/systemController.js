@@ -1,6 +1,6 @@
 const fs = require("fs/promises");
 const path = require("path");
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { uploadsDirectory } = require("../config/storage");
 
 const CACHE_TTL_MS = 30_000;

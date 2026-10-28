@@ -1,4 +1,4 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { resolveActivityTarget } = require("../services/activityTargetService");
 
 const getNotificationId = (value) => {

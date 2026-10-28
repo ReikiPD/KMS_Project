@@ -1,9 +1,9 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { createNotification } = require("../services/notificationService");
 const { recordAudit } = require("../services/auditService");
 
 const MAX_COMMENT_LENGTH = 1000;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const { PUBLIC_ID_PATTERN: UUID_PATTERN } = require("../utils");
 
 const getId = (value) => {
   const normalized = String(value || "").trim();
@@ -52,7 +52,9 @@ const getManagedAsset = async (assetReference, user, accessContext = null) => {
     : /^\d+$/.test(normalized)
       ? `id = $${values.push(Number.parseInt(normalized, 10))}`
       : `slug = $${values.push(normalized)}`;
-  const scopedAuthorId = accessContext?.id || (user.role === "admin" ? null : user.id);
+  const subject = accessContext || user;
+  if (subject?.read_only || (!subject?.environmentAdmin && !subject?.id)) return null;
+  const scopedAuthorId = subject.environmentAdmin ? null : subject.id;
   const ownerFilter = scopedAuthorId
     ? ` AND author_id = $${values.push(scopedAuthorId)}`
     : "";

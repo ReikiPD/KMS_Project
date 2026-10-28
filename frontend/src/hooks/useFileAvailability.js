@@ -22,7 +22,9 @@ export default function useFileAvailability(fileUrl) {
     })
       .then((response) => {
         if (response.ok) {
-          setState({ status: "available", message: "" });
+          // Content-Length of the same HEAD request; absent for chunked responses.
+          const size = Number(response.headers.get("content-length"));
+          setState({ status: "available", message: "", size: Number.isFinite(size) && size > 0 ? size : null });
           return;
         }
 

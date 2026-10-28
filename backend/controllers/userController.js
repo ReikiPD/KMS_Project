@@ -1,8 +1,9 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 const { admin } = require("../config/env");
 const { recordAudit } = require("../services/auditService");
-const { isBackofficeRole, loadRolePermissions } = require("../services/permissionService");
+const { isBackofficeRole, loadRolePermissions, hasGlobalStaffScope, canAssignAccessRole } = require("../services/permissionService");
+const { canManageStaffUnit, staffScopePredicate } = require("../services/staffScopeService");
 const { resolveActivityTarget } = require("../services/activityTargetService");
 const {
   clearSessionCookies,
@@ -49,7 +50,7 @@ const publicIdentifierFilter = (value, column = "public_id") => {
 const getProfileById = async (userId) => {
   const { rows } = await pool.query(
     `SELECT u.id, u.full_name, u.email, u.department, u.avatar_url, u.role, u.created_at,
-            u.work_unit_id, w.public_id AS work_unit_public_id, w.name AS work_unit_name, w.alias AS work_unit_alias,
+            u.work_unit_id, u.organization_scope, w.public_id AS work_unit_public_id, w.name AS work_unit_name, w.alias AS work_unit_alias,
             w.echelon_level AS work_unit_echelon_level
      FROM users u
      LEFT JOIN work_units w ON w.id = u.work_unit_id AND w.deleted_at IS NULL
@@ -65,6 +66,7 @@ const publicUser = (user) => user ? ({
   email: user.email,
   department: user.department || null,
   work_unit_id: user.work_unit_id || null,
+  organization_scope: user.organization_scope || "unit",
   work_unit_name: user.work_unit_name || null,
   work_unit_alias: user.work_unit_alias || null,
   work_unit_public_id: user.work_unit_public_id || null,
@@ -75,27 +77,14 @@ const publicUser = (user) => user ? ({
   ...(user.environmentAdmin ? { environmentAdmin: true } : {}),
 }) : null;
 
-const hasUnrestrictedStaffScope = (req) => req.user?.role === "admin" && !req.accessContext;
+const hasUnrestrictedStaffScope = (req) => hasGlobalStaffScope(req.accessContext || req.user);
 const getStaffAccessSubject = (req) => req.accessContext || req.user;
 const canManageScopedStaffUnit = async (req, workUnitId, client = pool) => {
-  if (hasUnrestrictedStaffScope(req)) return true;
-  const rootWorkUnitId = Number(getStaffAccessSubject(req)?.work_unit_id);
-  const targetWorkUnitId = Number(workUnitId);
-  if (!Number.isInteger(rootWorkUnitId) || !Number.isInteger(targetWorkUnitId)) return false;
-  const { rowCount } = await client.query(
-    `WITH RECURSIVE scoped_units AS (
-       SELECT id FROM work_units WHERE id = $1 AND deleted_at IS NULL
-       UNION ALL
-       SELECT child.id FROM work_units child
-       INNER JOIN scoped_units parent_scope ON child.parent_id = parent_scope.id
-       WHERE child.deleted_at IS NULL
-     )
-     SELECT 1 FROM scoped_units WHERE id = $2 LIMIT 1`,
-    [rootWorkUnitId, targetWorkUnitId],
-  );
-  return rowCount > 0;
+  return canManageStaffUnit(getStaffAccessSubject(req), workUnitId, client);
 };
-
+/* Unit validation is shared with delegated account access. */
+const staffAccountIsSelf = (req, id) => [req.user?.id, req.accessContext?.id, req.accessContext?.supervisor?.id]
+  .filter(Boolean).some((value) => Number(value) === Number(id));
 const createAdminSession = async (req, res) => {
   const adminUser = {
     full_name: admin.fullName,
@@ -212,26 +201,8 @@ const getStaff = async (req, res) => {
     const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
     const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 10;
     const accessSubject = req.accessContext || req.user;
-    const unrestricted = hasUnrestrictedStaffScope(req);
-    const filters = [unrestricted ? "u.role <> 'user'" : "u.role NOT IN ('user', 'admin')", "u.deleted_at IS NULL"];
     const values = [];
-    const shouldScopeOrganization = !unrestricted;
-    if (shouldScopeOrganization && accessSubject?.work_unit_id) {
-      values.push(Number(accessSubject.work_unit_id));
-      filters.push(`u.work_unit_id IN (
-        WITH RECURSIVE scoped_units AS (
-          SELECT id FROM work_units WHERE id = $${values.length} AND deleted_at IS NULL
-          UNION ALL
-          SELECT child.id FROM work_units child
-          INNER JOIN scoped_units parent ON child.parent_id = parent.id
-          WHERE child.deleted_at IS NULL
-        ) SELECT id FROM scoped_units
-      )`);
-    } else if (shouldScopeOrganization) filters.push("FALSE");
-    if (shouldScopeOrganization && accessSubject?.id) {
-      values.push(Number(accessSubject.id));
-      filters.push(`u.id <> $${values.length}`);
-    }
+    const filters = [staffScopePredicate(accessSubject, values)];
 
     getSearchTerms(q).forEach((term) => {
       values.push(`%${term}%`);
@@ -249,7 +220,7 @@ const getStaff = async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT u.id, u.public_id, u.full_name, u.email, u.department, u.role, u.created_at,
-              u.work_unit_id, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
+              u.work_unit_id, u.organization_scope, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
               wu.echelon_level AS work_unit_echelon_level,
               COUNT(a.id)::integer AS asset_count,
               COUNT(a.id) FILTER (WHERE a.is_published = TRUE)::integer AS published_asset_count,
@@ -317,7 +288,9 @@ const getStaffWorkUnits = async (req, res) => {
        ORDER BY sort_path`,
       [unrestricted, unrestricted ? null : Number(accessSubject.work_unit_id)],
     );
-    return res.json(rows);
+    return res.json(unrestricted && !accessSubject?.staff_scope_boundaries?.length
+      ? [{ id: "admin", name: "Admin — seluruh unit", alias: "Admin", organization_scope: "all" }, ...rows]
+      : rows);
   } catch (error) {
     console.error("Error fetching scoped staff work units:", error);
     return res.status(500).json({ error: "Gagal memuat Unit Kerja untuk manajemen pegawai" });
@@ -329,30 +302,31 @@ const createStaff = async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = typeof req.body.password === "string" ? req.body.password : "";
   const role = typeof req.body.role === "string" ? req.body.role.trim() : "pegawai";
-  const workUnitId = Number.parseInt(req.body.workUnitId, 10);
+  const allUnits = req.body.workUnitId === "admin";
+  const workUnitId = allUnits ? null : Number.parseInt(req.body.workUnitId, 10);
   if (fullName === null || !fullName || email === null || !email) return res.status(400).json({ error: "Nama lengkap dan email Pegawai wajib valid" });
-  if (!Number.isInteger(workUnitId) || workUnitId < 1) return res.status(400).json({ error: "Pilih Unit Kerja yang valid" });
+  if (!allUnits && (!Number.isInteger(workUnitId) || workUnitId < 1)) return res.status(400).json({ error: "Pilih Unit Kerja yang valid" });
   if (password.length < 8) return res.status(400).json({ error: "Kata sandi akun kedinasan minimal 8 karakter" });
 
   try {
     if (!(await isBackofficeRole(role))) return res.status(400).json({ error: "Role akun kedinasan tidak valid" });
-    if (!hasUnrestrictedStaffScope(req) && role !== "pegawai") {
-      return res.status(403).json({ error: "Role non-Admin hanya dapat mengelola akun Pegawai di bawah cakupan unitnya" });
+    if (!canAssignAccessRole(getStaffAccessSubject(req), await loadRolePermissions(role))) {
+      return res.status(403).json({ error: "Role tujuan memiliki kewenangan global yang melebihi akses pengelola akun" });
     }
     if (!(await canManageScopedStaffUnit(req, workUnitId))) {
       return res.status(403).json({ error: "Unit Kerja akun berada di luar cakupan organisasi Anda" });
     }
-    const { rows: workUnitRows } = await pool.query(
+    const { rows: workUnitRows } = allUnits ? { rows: [{ name: "Admin — seluruh unit" }] } : await pool.query(
       "SELECT name FROM work_units WHERE id = $1 AND deleted_at IS NULL",
       [workUnitId],
     );
     if (!workUnitRows[0]) return res.status(400).json({ error: "Unit Kerja yang dipilih tidak ditemukan" });
     const department = workUnitRows[0].name;
     const { rows } = await pool.query(
-      `INSERT INTO users (full_name, email, password, department, work_unit_id, role)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, public_id, full_name, email, department, work_unit_id, role, created_at`,
-      [fullName, email, await bcrypt.hash(password, 10), department || null, workUnitId, role],
+      `INSERT INTO users (full_name, email, password, department, work_unit_id, role, organization_scope)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, public_id, full_name, email, department, work_unit_id, organization_scope, role, created_at`,
+      [fullName, email, await bcrypt.hash(password, 10), department || null, workUnitId, role, allUnits ? "all" : "unit"],
     );
     await recordAudit({ actorId: req.user.id || null, actorLabel: req.user.full_name, actorRole: req.user.role, action: "staff.created", targetType: "account", targetId: rows[0].id, metadata: { email, role, workUnitId } });
     return res.status(201).json(rows[0]);
@@ -376,7 +350,8 @@ const deleteStaff = async (req, res) => {
     );
     const target = targetResult.rows[0];
     if (!target) return res.status(404).json({ error: "Akun kedinasan tidak ditemukan atau sudah tidak aktif" });
-    if (!hasUnrestrictedStaffScope(req) && (target.role !== "pegawai" || !(await canManageScopedStaffUnit(req, target.work_unit_id)))) {
+    if (staffAccountIsSelf(req, target.id)) return res.status(403).json({ error: "Akun sendiri atau pemilik sesi tidak dapat dinonaktifkan" });
+    if (!(await canManageScopedStaffUnit(req, target.work_unit_id))) {
       return res.status(403).json({ error: "Akun berada di luar cakupan pengelolaan Anda" });
     }
     const { rows } = await pool.query(
@@ -400,15 +375,16 @@ const deleteStaff = async (req, res) => {
 const updateStaffRole = async (req, res) => {
   const locator = publicIdentifierFilter(req.params.id);
   const role = typeof req.body?.role === "string" ? req.body.role.trim() : null;
-  const workUnitId = Number.parseInt(req.body?.workUnitId, 10);
+  const allUnits = req.body?.workUnitId === "admin";
+  const workUnitId = allUnits ? null : Number.parseInt(req.body?.workUnitId, 10);
   if (!locator || !role) return res.status(400).json({ error: "Referensi akun atau role tidak valid" });
-  if (!Number.isInteger(workUnitId) || workUnitId <= 0) {
+  if (!allUnits && (!Number.isInteger(workUnitId) || workUnitId <= 0)) {
     return res.status(400).json({ error: "Unit Kerja akun wajib dipilih" });
   }
   try {
     if (!(await isBackofficeRole(role))) return res.status(400).json({ error: "Role akun kedinasan tidak valid" });
-    if (!hasUnrestrictedStaffScope(req) && role !== "pegawai") {
-      return res.status(403).json({ error: "Role non-Admin hanya dapat mengelola akun Pegawai di bawah cakupan unitnya" });
+    if (!canAssignAccessRole(getStaffAccessSubject(req), await loadRolePermissions(role))) {
+      return res.status(403).json({ error: "Role tujuan memiliki kewenangan global yang melebihi akses pengelola akun" });
     }
     if (!(await canManageScopedStaffUnit(req, workUnitId))) {
       return res.status(403).json({ error: "Unit Kerja akun berada di luar cakupan organisasi Anda" });
@@ -422,10 +398,11 @@ const updateStaffRole = async (req, res) => {
     );
     const target = targetResult.rows[0];
     if (!target) return res.status(404).json({ error: "Akun kedinasan tidak ditemukan atau sudah tidak aktif" });
-    if (!hasUnrestrictedStaffScope(req) && (target.role !== "pegawai" || !(await canManageScopedStaffUnit(req, target.work_unit_id)))) {
+    if (staffAccountIsSelf(req, target.id)) return res.status(403).json({ error: "Role akun sendiri atau pemilik sesi tidak dapat diubah" });
+    if (!(await canManageScopedStaffUnit(req, target.work_unit_id))) {
       return res.status(403).json({ error: "Akun berada di luar cakupan pengelolaan Anda" });
     }
-    const unitResult = await pool.query(
+    const unitResult = allUnits ? { rows: [{ name: "Admin — seluruh unit" }] } : await pool.query(
       `SELECT id, name
        FROM work_units
        WHERE id = $1 AND deleted_at IS NULL`,
@@ -440,18 +417,20 @@ const updateStaffRole = async (req, res) => {
     const workUnitParameter = roleParameter + 1;
     const departmentParameter = roleParameter + 2;
     const actorParameter = roleParameter + 3;
+    values.push(allUnits ? "all" : "unit");
     const { rows } = await pool.query(
       `UPDATE users
        SET role = $${roleParameter},
            work_unit_id = $${workUnitParameter},
            department = $${departmentParameter},
+           organization_scope = $${values.length},
            session_version = session_version + 1,
            updated_at = CURRENT_TIMESTAMP
        WHERE ${locator.sql}
          AND role <> 'user'
          AND deleted_at IS NULL
          AND ($${actorParameter}::integer IS NULL OR id <> $${actorParameter})
-       RETURNING id, public_id, full_name, email, department, work_unit_id, role, created_at`,
+       RETURNING id, public_id, full_name, email, department, work_unit_id, organization_scope, role, created_at`,
       values,
     );
     if (!rows[0]) return res.status(404).json({ error: "Akun tidak ditemukan atau role akun sendiri tidak dapat diubah" });

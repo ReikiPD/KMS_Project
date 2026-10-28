@@ -84,6 +84,8 @@ if (isProduction && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuredAdminEmail)) {
   throw new Error("KMS_ADMIN_EMAIL production wajib berupa alamat email yang valid");
 }
 
+const authAttemptLimit = numberFromEnv("RATE_LIMIT_AUTH_MAX", 10, { min: 3, max: 1000 });
+
 module.exports = {
   nodeEnv,
   isProduction,
@@ -92,12 +94,18 @@ module.exports = {
   port: Number(process.env.PORT) || 3000,
   trustProxy: numberFromEnv("TRUST_PROXY_HOPS", nodeEnv === "production" ? 1 : 0, { min: 0, max: 5 }),
   httpLogging: booleanFromEnv("HTTP_LOGGING", nodeEnv !== "production"),
+  monitoring: {
+    enabled: booleanFromEnv("METRICS_ENABLED", false),
+    // Dedicated loopback listener; this is never exposed through the public API.
+    port: numberFromEnv("METRICS_PORT", 9464, { min: 1024, max: 65535 }),
+  },
   runMigrationsOnStart: booleanFromEnv("RUN_MIGRATIONS_ON_START", nodeEnv !== "production"),
   uploads: {
     directory: path.resolve(configuredUploadDirectory || path.join(__dirname, "../uploads")),
     serveFromApi: serveUploadsFromApi,
     accelRedirectPrefix: mediaAccelRedirectPrefix,
     assetMaxBytes: numberFromEnv("ASSET_UPLOAD_MAX_BYTES", 20 * 1024 * 1024, { min: 1024 * 1024, max: 200 * 1024 * 1024 }),
+    internalMaxBytes: numberFromEnv("INTERNAL_ASSET_MAX_BYTES", 1024 ** 3, { min: 1024 * 1024, max: 1024 ** 3 }),
     avatarMaxBytes: numberFromEnv("AVATAR_UPLOAD_MAX_BYTES", 2 * 1024 * 1024, { min: 256 * 1024, max: 10 * 1024 * 1024 }),
     minimumFreeBytes: numberFromEnv("UPLOAD_MINIMUM_FREE_BYTES", isProduction ? 2 * 1024 * 1024 * 1024 : 100 * 1024 * 1024, { min: 50 * 1024 * 1024 }),
   },
@@ -119,12 +127,17 @@ module.exports = {
   server: {
     keepAliveTimeoutMs: numberFromEnv("SERVER_KEEP_ALIVE_TIMEOUT_MS", 65_000, { min: 5_000, max: 120_000 }),
     headersTimeoutMs: numberFromEnv("SERVER_HEADERS_TIMEOUT_MS", 66_000, { min: 6_000, max: 180_000 }),
-    requestTimeoutMs: numberFromEnv("SERVER_REQUEST_TIMEOUT_MS", 120_000, { min: 10_000, max: 300_000 }),
+    requestTimeoutMs: numberFromEnv("SERVER_REQUEST_TIMEOUT_MS", 120_000, { min: 10_000, max: 24 * 60 * 60 * 1000 }),
     shutdownTimeoutMs: numberFromEnv("SERVER_SHUTDOWN_TIMEOUT_MS", 10_000, { min: 3_000, max: 60_000 }),
   },
   rateLimits: {
+    // Legacy false values no longer disable baseline authentication protection.
+    staffLoginEnabled: true,
     windowMs: numberFromEnv("RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, { min: 10_000, max: 24 * 60 * 60 * 1000 }),
-    auth: numberFromEnv("RATE_LIMIT_AUTH_MAX", 10, { min: 3, max: 1000 }),
+    auth: authAttemptLimit,
+    // Shared office NAT gets a broader IP budget; accounts keep a strict cap.
+    loginIp: numberFromEnv("RATE_LIMIT_LOGIN_IP_MAX", Math.max(100, authAttemptLimit * 10), { min: 3, max: 10000 }),
+    loginAccount: numberFromEnv("RATE_LIMIT_LOGIN_ACCOUNT_MAX", authAttemptLimit, { min: 3, max: 1000 }),
     write: numberFromEnv("RATE_LIMIT_WRITE_MAX", 120, { min: 10, max: 10_000 }),
     publicEvent: numberFromEnv("RATE_LIMIT_PUBLIC_EVENT_MAX", 60, { min: 10, max: 10_000 }),
   },

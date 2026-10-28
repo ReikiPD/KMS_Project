@@ -24,6 +24,16 @@ const runConverter = (binary, args) => execFileAsync(binary, args, {
   maxBuffer: 2 * 1024 * 1024,
 });
 
+const writeConvertedFile = async (outputPath, binary, args) => {
+  try { await runConverter(binary, args); }
+  catch (error) {
+    // A converter may create a partial file before rejecting. Its caller does
+    // not receive the generated path on failure, so clean up at this boundary.
+    await fs.unlink(outputPath).catch(() => undefined);
+    throw error;
+  }
+};
+
 const optimizedName = (file, extension) => {
   const prefix = path.basename(file.filename, path.extname(file.filename)).replace(/[^a-zA-Z0-9_-]/g, "");
   return `${prefix}-optimized-${crypto.randomUUID()}${extension}`;
@@ -39,7 +49,7 @@ const shouldUseResult = ({ originalSize, optimizedSize, forceFormat = false }) =
 const optimizePdf = async (file) => {
   const outputName = optimizedName(file, ".pdf");
   const outputPath = path.join(path.dirname(file.path), outputName);
-  await runConverter(mediaOptimization.ghostscriptPath, [
+  await writeConvertedFile(outputPath, mediaOptimization.ghostscriptPath, [
     "-sDEVICE=pdfwrite",
     "-dCompatibilityLevel=1.7",
     `-dPDFSETTINGS=/${mediaOptimization.pdfQuality}`,
@@ -58,7 +68,7 @@ const optimizePdf = async (file) => {
 const optimizeVideo = async (file) => {
   const outputName = optimizedName(file, ".mp4");
   const outputPath = path.join(path.dirname(file.path), outputName);
-  await runConverter(mediaOptimization.ffmpegPath, [
+  await writeConvertedFile(outputPath, mediaOptimization.ffmpegPath, [
     "-hide_banner",
     "-loglevel", "error",
     "-y",

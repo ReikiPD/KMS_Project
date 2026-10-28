@@ -1,5 +1,6 @@
-const pool = require("../database/db");
-const { hasPermission } = require("../services/permissionService");
+const pool = require("../config/db");
+const { hasPermission, hasOrganizationScope } = require("../services/permissionService");
+const { lockInternalAssetHierarchy, getInternalUnitMutationError } = require("../services/internalAssetUnitGuard");
 
 const sendDatabaseError = (res, message, error) => res.status(500).json({
   error: message,
@@ -54,9 +55,10 @@ const createCategory = async (req, res) => {
   const { name, slug, description } = req.body;
   try {
     const { rows } = await pool.query(
-      "INSERT INTO categories (name, slug, description) VALUES ($1, $2, $3) RETURNING *",
-      [name, slug, description],
+      "INSERT INTO categories (name, slug, description, logo_url) VALUES ($1, $2, $3, $4) RETURNING *",
+      [name, slug, description, req.file?.filename || null],
     );
+    req.logoSaved = true;
     return res.status(201).json(rows[0]);
   } catch (error) {
     return sendDatabaseError(res, "Gagal membuat kategori", error);
@@ -67,10 +69,13 @@ const updateCategory = async (req, res) => {
   const { name, slug, description } = req.body;
   try {
     const { rows } = await pool.query(
-      "UPDATE categories SET name=$1, slug=$2, description=$3 WHERE id=$4 RETURNING *",
-      [name, slug, description, req.params.id],
+      `UPDATE categories SET name=$1, slug=$2, description=$3,
+         logo_url = CASE WHEN $5::boolean THEN $6::text ELSE logo_url END
+       WHERE id=$4 AND deleted_at IS NULL RETURNING *`,
+      [name, slug, description, req.params.id, Boolean(req.file || req.body.removeLogo), req.file?.filename || null],
     );
     if (!rows[0]) return res.status(404).json({ error: "Kategori tidak ditemukan" });
+    req.logoSaved = true;
     return res.json(rows[0]);
   } catch (error) {
     return sendDatabaseError(res, "Gagal mengubah kategori", error);
@@ -95,13 +100,13 @@ const getAllWorkUnits = async (req, res) => {
     const includeAssetCount = req.query.withAssetCount === "true";
     const { rows } = await pool.query(
       `WITH RECURSIVE unit_tree AS (
-         SELECT w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order,
+         SELECT w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order, w.logo_url,
                 TRUE AS effective_is_public,
                 LPAD(w.sort_order::text, 10, '0') || '-' || LPAD(w.id::text, 10, '0') AS sort_path
          FROM work_units w
          WHERE w.parent_id IS NULL AND w.deleted_at IS NULL AND w.is_public = TRUE
          UNION ALL
-         SELECT child.id, child.name, child.alias, child.echelon_level, child.parent_id, child.is_public, child.sort_order,
+         SELECT child.id, child.name, child.alias, child.echelon_level, child.parent_id, child.is_public, child.sort_order, child.logo_url,
                 parent_scope.effective_is_public AND child.is_public,
                 parent_scope.sort_path || '.' || LPAD(child.sort_order::text, 10, '0') || '-' || LPAD(child.id::text, 10, '0')
          FROM work_units child
@@ -114,7 +119,7 @@ const getAllWorkUnits = async (req, res) => {
          FROM descendants scope
          INNER JOIN unit_tree child ON child.parent_id = scope.unit_id
        )
-       SELECT w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order,
+       SELECT w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order, w.logo_url,
               parent.name AS parent_name, parent.alias AS parent_alias
               ${includeAssetCount ? ", COUNT(DISTINCT a.id)::INTEGER AS asset_count" : ""}
        FROM unit_tree w
@@ -123,7 +128,7 @@ const getAllWorkUnits = async (req, res) => {
        LEFT JOIN knowledge_assets a ON a.work_unit_id = scope.unit_id
          AND a.is_published = TRUE AND a.deleted_at IS NULL` : ""}
        WHERE w.effective_is_public = TRUE
-       GROUP BY w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order,
+       GROUP BY w.id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order, w.logo_url,
                 w.sort_path, parent.name, parent.alias
        ORDER BY w.sort_path`,
     );
@@ -154,7 +159,7 @@ const getBackofficeWorkUnits = async (_req, res) => {
          FROM descendants scope
          INNER JOIN unit_tree child ON child.parent_id = scope.unit_id
        )
-       SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order,
+       SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order, w.logo_url,
               w.created_at, w.updated_at, w.effective_is_public,
               parent.name AS parent_name, parent.alias AS parent_alias,
               COUNT(DISTINCT direct_child.id)::INTEGER AS child_count,
@@ -165,7 +170,7 @@ const getBackofficeWorkUnits = async (_req, res) => {
        LEFT JOIN unit_tree direct_child ON direct_child.parent_id = w.id
        LEFT JOIN descendants scope ON scope.root_id = w.id
        LEFT JOIN knowledge_assets a ON a.work_unit_id = scope.unit_id
-       GROUP BY w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order,
+       GROUP BY w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.is_public, w.sort_order, w.logo_url,
                 w.created_at, w.updated_at, w.effective_is_public, w.sort_path,
                 parent.name, parent.alias
        ORDER BY w.sort_path`,
@@ -233,14 +238,14 @@ const getAnalyticsTrend = (period) => {
 const getWorkUnitAnalyticsScope = async (req, res) => {
   try {
     const accessSubject = req.accessContext || req.user;
-    const unrestricted = req.user?.role === "admin" && !req.accessContext;
+    const unrestricted = hasOrganizationScope(accessSubject);
     if (!unrestricted && !accessSubject?.work_unit_id) {
       return res.status(403).json({ error: "Akun belum memiliki Unit Kerja untuk membatasi analitik" });
     }
 
     const { rows } = await pool.query(
       `WITH RECURSIVE scope_tree AS (
-         SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id,
+         SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.logo_url,
                 w.sort_order, 0::INTEGER AS depth,
                 LPAD(w.sort_order::text, 10, '0') || '-' || LPAD(w.id::text, 10, '0') AS sort_path
          FROM work_units w
@@ -248,14 +253,14 @@ const getWorkUnitAnalyticsScope = async (req, res) => {
            AND (($1::BOOLEAN = TRUE AND w.parent_id IS NULL)
              OR ($1::BOOLEAN = FALSE AND w.id = $2))
          UNION ALL
-         SELECT child.id, child.public_id, child.name, child.alias, child.echelon_level, child.parent_id,
+         SELECT child.id, child.public_id, child.name, child.alias, child.echelon_level, child.parent_id, child.logo_url,
                 child.sort_order, parent_scope.depth + 1,
                 parent_scope.sort_path || '.' || LPAD(child.sort_order::text, 10, '0') || '-' || LPAD(child.id::text, 10, '0')
          FROM work_units child
          INNER JOIN scope_tree parent_scope ON child.parent_id = parent_scope.id
          WHERE child.deleted_at IS NULL
        )
-       SELECT id, public_id, name, alias, echelon_level, parent_id, depth
+       SELECT id, public_id, name, alias, echelon_level, parent_id, logo_url, depth
        FROM scope_tree
        ORDER BY sort_path`,
       [unrestricted, unrestricted ? null : Number(accessSubject.work_unit_id)],
@@ -276,7 +281,7 @@ const getWorkUnitAnalytics = async (req, res) => {
   const trend = getAnalyticsTrend(period);
   try {
     const unitResult = await pool.query(
-      `SELECT w.id, w.public_id, w.name, w.alias, w.is_public, w.echelon_level, w.parent_id,
+      `SELECT w.id, w.public_id, w.name, w.alias, w.is_public, w.echelon_level, w.parent_id, w.logo_url,
               parent.name AS parent_name, parent.alias AS parent_alias,
               COUNT(child.id)::INTEGER AS child_count
        FROM work_units w
@@ -294,7 +299,7 @@ const getWorkUnitAnalytics = async (req, res) => {
     if (!hasPermission(accessSubject, analyticsResource, "view")) {
       return res.status(403).json({ error: `Role Anda tidak memiliki akses analitik Eselon ${unit.echelon_level}` });
     }
-    const unrestricted = req.user?.role === "admin" && !req.accessContext;
+    const unrestricted = hasOrganizationScope(accessSubject);
     if (!unrestricted) {
       if (!accessSubject?.work_unit_id) return res.status(403).json({ error: "Akun belum memiliki Unit Kerja untuk membatasi analitik" });
       const allowedResult = await pool.query(
@@ -313,20 +318,20 @@ const getWorkUnitAnalytics = async (req, res) => {
     const scopeRootId = unrestricted ? unit.id : Number(accessSubject.work_unit_id);
     const scopeUnitsPromise = pool.query(
       `WITH RECURSIVE scope_tree AS (
-         SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id,
+         SELECT w.id, w.public_id, w.name, w.alias, w.echelon_level, w.parent_id, w.logo_url,
                 w.sort_order, 0::INTEGER AS depth,
                 LPAD(w.sort_order::text, 10, '0') || '-' || LPAD(w.id::text, 10, '0') AS sort_path
          FROM work_units w
          WHERE w.id = $1 AND w.deleted_at IS NULL
          UNION ALL
-         SELECT child.id, child.public_id, child.name, child.alias, child.echelon_level, child.parent_id,
+         SELECT child.id, child.public_id, child.name, child.alias, child.echelon_level, child.parent_id, child.logo_url,
                 child.sort_order, parent_scope.depth + 1,
                 parent_scope.sort_path || '.' || LPAD(child.sort_order::text, 10, '0') || '-' || LPAD(child.id::text, 10, '0')
          FROM work_units child
          INNER JOIN scope_tree parent_scope ON child.parent_id = parent_scope.id
          WHERE child.deleted_at IS NULL
        )
-       SELECT id, public_id, name, alias, echelon_level, parent_id, depth
+       SELECT id, public_id, name, alias, echelon_level, parent_id, logo_url, depth
        FROM scope_tree
        ORDER BY sort_path`,
       [scopeRootId],
@@ -465,14 +470,15 @@ const createWorkUnit = async (req, res) => {
     const parentError = await validateWorkUnitParent(payload);
     if (parentError) return res.status(400).json({ error: parentError });
     const { rows } = await pool.query(
-      `INSERT INTO work_units (name, alias, echelon_level, parent_id, is_public, sort_order)
+      `INSERT INTO work_units (name, alias, echelon_level, parent_id, is_public, sort_order, logo_url)
        VALUES ($1, $2, $3, $4, $5,
          (SELECT COALESCE(MAX(sort_order), 0) + 1
           FROM work_units
-          WHERE parent_id IS NOT DISTINCT FROM $4 AND deleted_at IS NULL))
+          WHERE parent_id IS NOT DISTINCT FROM $4 AND deleted_at IS NULL), $6)
        RETURNING *`,
-      [payload.name, payload.alias, payload.echelonLevel, payload.parentId, payload.isPublic],
+      [payload.name, payload.alias, payload.echelonLevel, payload.parentId, payload.isPublic, req.file?.filename || null],
     );
+    req.logoSaved = true;
     return res.status(201).json(rows[0]);
   } catch (error) {
     if (error.code === "23505") return res.status(409).json({ error: "Nama Unit Kerja tersebut sudah digunakan" });
@@ -564,6 +570,7 @@ const updateWorkUnit = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await lockInternalAssetHierarchy(client, true);
     const currentResult = await client.query(
       `SELECT w.*,
               (SELECT COUNT(*)::INTEGER FROM work_units child WHERE child.parent_id = w.id AND child.deleted_at IS NULL) AS child_count
@@ -582,6 +589,11 @@ const updateWorkUnit = async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: payload.error });
     }
+    const internalError = await getInternalUnitMutationError(client, current, payload);
+    if (internalError) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: internalError });
+    }
     if (Number(current.child_count) > 0 && payload.echelonLevel !== Number(current.echelon_level)) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "Unit Kerja yang masih memiliki cabang tidak dapat diubah tingkatnya" });
@@ -595,6 +607,7 @@ const updateWorkUnit = async (req, res) => {
       `UPDATE work_units
        SET name = $1, alias = $2, echelon_level = $3, parent_id = $4,
            is_public = $5,
+           logo_url = CASE WHEN $7::boolean THEN $8::text ELSE logo_url END,
            sort_order = CASE
              WHEN parent_id IS DISTINCT FROM $4 THEN (
                SELECT COALESCE(MAX(sibling.sort_order), 0) + 1
@@ -607,7 +620,8 @@ const updateWorkUnit = async (req, res) => {
            END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $6 RETURNING *`,
-      [payload.name, payload.alias, payload.echelonLevel, payload.parentId, payload.isPublic, req.params.id],
+      [payload.name, payload.alias, payload.echelonLevel, payload.parentId, payload.isPublic, req.params.id,
+        Boolean(req.file || req.body.removeLogo), req.file?.filename || null],
     );
     if (current.name !== payload.name) {
       await client.query(
@@ -616,6 +630,7 @@ const updateWorkUnit = async (req, res) => {
       );
     }
     await client.query("COMMIT");
+    req.logoSaved = true;
     return res.json(rows[0]);
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
@@ -627,24 +642,44 @@ const updateWorkUnit = async (req, res) => {
 };
 
 const deleteWorkUnit = async (req, res) => {
+  const client = await pool.connect();
   try {
-    const childResult = await pool.query(
+    await client.query("BEGIN");
+    await lockInternalAssetHierarchy(client, true);
+    const currentResult = await client.query(
+      "SELECT * FROM work_units WHERE id = $1 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id],
+    );
+    if (!currentResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Unit Kerja tidak ditemukan" });
+    }
+    const internalError = await getInternalUnitMutationError(client, currentResult.rows[0]);
+    if (internalError) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: internalError });
+    }
+    const childResult = await client.query(
       "SELECT COUNT(*)::INTEGER AS count FROM work_units WHERE parent_id = $1 AND deleted_at IS NULL",
       [req.params.id],
     );
     if (Number(childResult.rows[0]?.count) > 0) {
+      await client.query("ROLLBACK");
       return res.status(409).json({ error: "Unit Kerja masih memiliki cabang. Hapus atau pindahkan unit turunannya terlebih dahulu" });
     }
-    const { rows } = await pool.query(
+    await client.query(
       `UPDATE work_units
        SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id=$1 AND deleted_at IS NULL RETURNING id`,
       [req.params.id],
     );
-    if (!rows[0]) return res.status(404).json({ error: "Unit Kerja tidak ditemukan" });
+    await client.query("COMMIT");
     return res.json({ message: "Unit Kerja berhasil diarsipkan (soft delete)" });
   } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
     return sendDatabaseError(res, "Gagal menghapus Unit Kerja", error);
+  } finally {
+    client.release();
   }
 };
 

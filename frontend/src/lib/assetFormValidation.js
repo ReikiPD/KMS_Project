@@ -1,7 +1,5 @@
 import { getVideoChapterValidation } from "./video";
 
-const MIN_CONTENT_LENGTH = 20;
-
 export function validateAssetFormStep({
   step,
   formData,
@@ -18,10 +16,6 @@ export function validateAssetFormStep({
     if (!formData.work_unit_id) errors.push("Unit kerja pemilik wajib dipilih.");
     if (!formData.asset_type) errors.push("Tipe aset wajib dipilih.");
     if (formData.is_published !== "true" && formData.is_published !== "false") errors.push("Status publikasi wajib dipilih.");
-  }
-
-  if (step === 1 && formData.content.trim().length < MIN_CONTENT_LENGTH) {
-    errors.push(`Konten pengetahuan wajib diisi minimal ${MIN_CONTENT_LENGTH} karakter.`);
   }
 
   if (step === 2) {

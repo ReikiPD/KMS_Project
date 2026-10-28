@@ -1,0 +1,125 @@
+.kms-public {
+  --kms-route-blue: #0876b9;
+  --kms-route-sky: #38a1db;
+  --kms-route-purple: #914fba;
+  --kms-route-orange: #eb5c24;
+  --kms-route-node: var(--kms-surface);
+  --kms-route-navy: #121548;
+  --kms-route-tint: #e5f0f8;
+  --kms-route-tint-end: #f2f8fc;
+  --kms-route-warm: #fbf3e2;
+  --kms-route-dot: rgb(18 97 166 / .16);
+  --kms-route-dot-inverse: rgb(255 255 255 / .12);
+  --kms-kind-sea: #0a5c93;
+  --kms-kind-air: #1f86c4;
+  --kms-kind-road: #c4501c;
+  --kms-kind-rail: #8546ad;
+  --kms-kind-support: #8b650b;
+}
+[data-theme="dark"] .kms-public {
+  --kms-route-blue: #3d9ad6;
+  --kms-route-sky: #5cb8e8;
+  --kms-route-purple: #b27ad8;
+  --kms-route-orange: #f07a48;
+  --kms-route-navy: #0d1030;
+  --kms-route-tint: #0f2437;
+  --kms-route-tint-end: #0b1a29;
+  --kms-route-warm: #15191d;
+  --kms-route-dot: rgb(99 179 231 / .13);
+  --kms-route-dot-inverse: rgb(255 255 255 / .09);
+  --kms-kind-sea: #5aa9e6;
+  --kms-kind-air: #8ad4f7;
+  --kms-kind-road: #f6a37f;
+  --kms-kind-rail: #cfa6ec;
+  --kms-kind-support: var(--kms-gold-500);
+}
+.kms-public .kms-mode--laut { --kms-mode-color: var(--kms-route-blue); --kms-kind: var(--kms-kind-sea); }
+.kms-public .kms-mode--udara { --kms-mode-color: var(--kms-route-sky); --kms-kind: var(--kms-kind-air); }
+.kms-public .kms-mode--darat { --kms-mode-color: var(--kms-route-orange); --kms-kind: var(--kms-kind-road); }
+.kms-public .kms-mode--kereta { --kms-mode-color: var(--kms-route-purple); --kms-kind: var(--kms-kind-rail); }
+.kms-public .kms-mode--umum { --kms-mode-color: var(--kms-gold-500); --kms-kind: var(--kms-kind-support); }
+.kms-public .kms-route-art { position: absolute; z-index: 0; display: block; overflow: visible; pointer-events: none; user-select: none; }
+.kms-public .kms-route-art .is-muted { opacity: .32; }
+.kms-public .kms-public-band { position: relative; isolation: isolate; }
+.kms-public .kms-public-band--featured, .kms-public .kms-public-band--units { overflow: hidden; }
+.kms-public-band > .kms-home-container, .kms-public-band > .kms-library-container { position: relative; z-index: 1; }
+.kms-public .kms-public-dots::before, .kms-public .kms-home-hero::before {
+  position: absolute; z-index: 0; inset: 0; content: ""; pointer-events: none;
+  background-image: radial-gradient(circle, var(--kms-route-dot) 1.1px, transparent 1.6px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(110% 95% at 0% 0%, #000, transparent 62%);
+}
+.kms-public .kms-home-panorama .kms-home-hero::before {
+  background-image: radial-gradient(circle, var(--kms-route-dot-inverse) 1.1px, transparent 1.6px);
+  mask-image: radial-gradient(85% 120% at 0% 0%, #000, transparent 70%);
+}
+.kms-public .kms-home-hero-grid { padding-bottom: 4.25rem; }
+.kms-public .kms-home-hero .kms-route-art--baseline { inset: auto 0 0; width: 100%; height: 4rem; mask-image: linear-gradient(90deg, #000 38%, transparent 64%); }
+.kms-public .kms-public-band--featured {
+  border-block: 1px solid color-mix(in srgb, var(--kms-blue-600) 14%, var(--kms-border));
+  background: radial-gradient(60rem 22rem at 100% 0%, color-mix(in srgb, var(--kms-route-sky) 12%, transparent), transparent 70%), linear-gradient(180deg, var(--kms-route-tint), var(--kms-route-tint-end));
+}
+.kms-public .kms-public-band--featured > .kms-route-art--corner { top: 0; right: 0; width: min(44rem, 55%); height: 8.75rem; opacity: .5; mask-image: linear-gradient(90deg, transparent, #000 45%); }
+.kms-public .kms-public-band--featured .kms-home-featured-band { margin-block: 0; }
+.kms-public .kms-public-band--featured .kms-home-section-heading > a { background: var(--kms-surface); box-shadow: var(--kms-shadow-sm); }
+.kms-public .kms-public-band--units { --kms-route-node: var(--kms-route-navy); color: white; background: var(--kms-route-navy); }
+.kms-public .kms-public-band--units > .kms-route-art--bandStart { left: 0; bottom: .75rem; width: min(40rem, 72%); height: 4rem; opacity: .75; }
+.kms-public .kms-public-band--units > .kms-route-art--bandEnd { right: 0; top: .75rem; width: min(35rem, 62%); height: 3.25rem; opacity: .75; }
+.kms-public .kms-public-band--units .kms-home-units-section { margin-block: 0; padding-block: clamp(3rem, 5vw, 4.25rem) clamp(3.75rem, 5.5vw, 4.75rem); }
+.kms-public .kms-public-band--units .kms-home-section-heading h2 { color: white; }
+.kms-public .kms-public-band--units .kms-home-heading-copy > p { color: rgb(255 255 255 / .8); }
+.kms-public .kms-public-band--units .kms-home-section-heading a { color: var(--kms-gold-500); }
+.kms-public .kms-public-band--units :is(a, button):focus-visible { outline-color: var(--kms-gold-500); }
+.kms-public .kms-new-home .kms-home-unit-grid { gap: 1rem; }
+.kms-public .kms-new-home .kms-home-unit { border-color: transparent; box-shadow: var(--kms-shadow-sm); transition: border-color var(--kms-motion-fast) ease, transform var(--kms-motion-fast) var(--kms-ease); }
+.kms-public .kms-new-home .kms-home-unit::after { position: absolute; z-index: 1; inset: auto 0 0; height: .25rem; content: ""; background: var(--kms-mode-color); pointer-events: none; }
+.kms-public .kms-new-home .kms-home-unit:is(:hover, :focus-within), .kms-public .kms-home-unit-grid > a:focus-visible .kms-home-unit { border-color: var(--kms-gold-500); }
+.kms-public .kms-new-home .kms-home-unit-arrow { color: var(--kms-kind); }
+.kms-public .kms-home-section-heading h2 > svg,
+.kms-public .kms-new-home .kms-home-units-section .kms-home-section-heading h2 > svg,
+.kms-public .kms-detail-v2 :is(.kms-detail-v2-info, .kms-detail-v2-related) h2 > svg {
+  box-sizing: content-box; width: 1.375rem; height: 1.375rem; padding: .6rem; border-radius: .75rem;
+  flex-shrink: 0; color: var(--kms-gold-500); background: var(--kms-route-navy); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06);
+}
+.kms-public .kms-detail-v2-related h2 { display: flex; align-items: center; gap: .6rem; }
+[data-theme="dark"] .kms-public :is(.kms-home-section-heading, .kms-detail-v2-info, .kms-detail-v2-related) h2 > svg { background: #1b2350; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .1); }
+.kms-public .kms-public-band--units .kms-home-section-heading h2 > svg { background: rgb(255 255 255 / .1); }
+.kms-public .kms-topic-label { display: inline-flex; align-items: center; gap: .45rem; }
+.kms-public .kms-topic-label > svg { flex-shrink: 0; color: var(--kms-gold-500); }
+.kms-public .kms-home-topics .ina-chip__item:is(:hover, :focus-visible) .kms-topic-label > svg { color: white; }
+.kms-public .kms-home-announcement-image:has(img[data-public-visual="announcement-soft"]) { background: var(--kms-route-warm); }
+.kms-public .kms-home-announcement-image img[data-public-visual="announcement-soft"] { max-height: none; object-fit: cover; object-position: 70% center; }
+.kms-public .kms-public-footer-redesign { position: relative; isolation: isolate; overflow: hidden; border-top: 0; }
+.kms-public .kms-public-footer-redesign::before { position: absolute; inset: 0 0 auto; height: .3rem; content: ""; background: linear-gradient(90deg, var(--kms-route-blue) 0 24.6%, transparent 24.6% 25.4%, var(--kms-route-sky) 25.4% 49.6%, transparent 49.6% 50.4%, var(--kms-route-purple) 50.4% 74.6%, transparent 74.6% 75.4%, var(--kms-route-orange) 75.4% 100%); }
+.kms-public .kms-public-footer-redesign > :not(.kms-route-art) { position: relative; z-index: 1; }
+.kms-public .kms-public-footer-redesign > .kms-route-art--ring { top: -7rem; right: -7rem; width: 30rem; height: 30rem; opacity: .13; }
+.kms-public .kms-detail-v2-hero[data-mode] { --kms-detail-mode: var(--kms-route-blue); background: radial-gradient(48rem 20rem at 100% 0%, color-mix(in srgb, var(--kms-detail-mode) 16%, transparent), transparent 72%), linear-gradient(100deg, var(--detail-brand) 35%, color-mix(in srgb, var(--kms-detail-mode) 9%, var(--detail-brand))); box-shadow: inset 0 .25rem 0 var(--kms-detail-mode); }
+.kms-public .kms-detail-v2-hero[data-mode="laut"] { --kms-detail-mode: var(--kms-route-blue); }
+.kms-public .kms-detail-v2-hero[data-mode="udara"] { --kms-detail-mode: var(--kms-route-sky); }
+.kms-public .kms-detail-v2-hero[data-mode="darat"] { --kms-detail-mode: var(--kms-route-orange); }
+.kms-public .kms-detail-v2-hero[data-mode="kereta"] { --kms-detail-mode: var(--kms-route-purple); }
+.kms-public .kms-detail-v2-hero .kms-route-art--corner { opacity: .85; }
+.kms-public .kms-public-band--catalogue { border-bottom: 1px solid color-mix(in srgb, var(--kms-blue-600) 14%, var(--kms-border)); background: radial-gradient(50rem 20rem at 100% 0%, color-mix(in srgb, var(--kms-route-sky) 14%, transparent), transparent 70%), linear-gradient(115deg, var(--kms-route-tint), var(--kms-route-tint-end) 58%, var(--kms-route-warm)); }
+.kms-public .kms-public-band--catalogue > .kms-route-art--corner { top: 0; right: 0; width: min(42rem, 52%); height: 13rem; opacity: .5; mask-image: linear-gradient(90deg, transparent, #000 45%); }
+.kms-public .kms-library-page .kms-public-band--catalogue .kms-catalogue-heading { padding: clamp(1.75rem, 3.5vw, 2.5rem) 0; border: 0; border-radius: 0; background: none; overflow: visible; }
+.kms-public .kms-public-band--catalogue .kms-catalogue-heading::before { display: none; }
+.kms-public .kms-public-band--catalogue .kms-section-title { font-size: clamp(1.75rem, 2.6vw, 2.25rem); }
+.kms-public .kms-public-band--catalogue .kms-library-toolbar { max-width: 60rem; }
+.kms-public .kms-catalogue-results { padding-top: 1.75rem; }
+.kms-public .kms-unit-work-item .kms-catalogue-unit-logo { --kms-work-unit-logo-size: 2rem; border-radius: 50%; }
+.kms-public .kms-unit-work-item .kms-catalogue-unit-logo.has-image { padding: .2rem; border-radius: 50%; }
+.kms-public .kms-unit-work-item .kms-catalogue-unit-logo img { border-radius: 0; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .kms-public .kms-new-home .kms-home-unit:hover { transform: translateY(-2px); }
+}
+@media (max-width: 1023px) {
+  .kms-public .kms-home-hero .kms-route-art--baseline { mask-image: linear-gradient(90deg, #000 55%, transparent 95%); }
+}
+@media (max-width: 767px) {
+  .kms-public .kms-public-band--featured > .kms-route-art--corner, .kms-public .kms-public-band--catalogue > .kms-route-art--corner { display: none; }
+  .kms-public .kms-detail-v2-hero .kms-route-art--corner { opacity: .22; }
+  .kms-public .kms-home-announcement-image img[data-public-visual="announcement-soft"] { object-position: 92% center; }
+  .kms-public .kms-public-footer-redesign > .kms-route-art--ring { top: auto; bottom: -9rem; right: -9rem; width: 22rem; height: 22rem; }
+}
+[data-reduce-motion="true"] .kms-public .kms-new-home .kms-home-unit:hover { transform: none; }
+[data-reduce-motion="true"] .kms-public .kms-new-home .kms-home-unit:hover .kms-home-unit-panorama img { transform: none; }

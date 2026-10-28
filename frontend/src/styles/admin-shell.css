@@ -1,0 +1,335 @@
+/* Admin KMS uses the INA Gov IDDS theme; these styles only define the Kemenhub shell identity and chart layout. */
+.kms-admin-shell {
+  --kms-admin-navy: var(--kms-navy-950);
+  --kms-admin-navy-light: var(--kms-blue-600);
+  --kms-admin-gold: var(--kms-gold-500);
+  background: var(--kms-canvas);
+}
+
+.kms-admin-topbar {
+  border-bottom: 2px solid var(--kms-admin-gold);
+  background: linear-gradient(100deg, var(--kms-admin-navy), var(--kms-navy-800) 60%, var(--kms-admin-navy-light));
+  box-shadow: 0 3px 16px rgb(11 31 58 / 0.18);
+}
+
+.kms-admin-topbar-mark {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: var(--kms-admin-gold);
+}
+
+.kms-admin-topbar-action {
+  display: inline-flex;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.24) !important;
+  border-radius: 0.5rem;
+  background: rgb(255 255 255 / 0.08) !important;
+  color: white !important;
+}
+
+.kms-admin-topbar-action:hover,
+.kms-admin-topbar-action:focus-visible,
+.kms-admin-notification-trigger:hover,
+.kms-admin-notification-trigger:focus-visible,
+.kms-admin-profile-trigger:hover,
+.kms-admin-profile-trigger:focus-visible {
+  background: rgb(255 255 255 / 0.18) !important;
+}
+
+.kms-admin-profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.375rem;
+  color: white;
+  outline: none;
+  transition: background 160ms ease;
+}
+
+.kms-admin-profile-trigger .ina-avatar {
+  height: 2rem;
+  width: 2rem;
+  flex: none;
+  object-fit: cover;
+}
+
+.kms-public-profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.375rem;
+  color: white;
+  outline: none;
+  transition: background 160ms ease;
+}
+
+.kms-public-profile-trigger:hover,
+.kms-public-profile-trigger:focus-visible { background: rgb(255 255 255 / 0.16); }
+
+.kms-public-profile-avatar {
+  height: 2rem;
+  width: 2rem;
+  flex: none;
+  object-fit: cover;
+}
+
+.kms-profile-avatar-tile {
+  display: flex;
+  height: 9rem;
+  width: 9rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.625rem;
+  background: linear-gradient(135deg, rgb(21 75 132 / 0.12), rgb(0 143 150 / 0.14));
+  object-fit: cover;
+}
+
+.kms-profile-surface {
+  border: 1px solid var(--color-border-subtle, #dfe3ea);
+  border-radius: 0.75rem;
+  background: var(--color-page-primary, #ffffff);
+  box-shadow: 0 8px 20px rgb(11 30 69 / 0.05);
+}
+
+.kms-edit-profile-photo {
+  height: 5rem;
+  width: 5rem;
+  flex: none;
+  border-radius: 0.625rem;
+  object-fit: cover;
+}
+
+.kms-profile-detail {
+  min-width: 0;
+  border-radius: 0.5rem;
+  background: var(--color-page-secondary, #f6f8fb);
+  padding: 0.75rem;
+}
+
+.kms-profile-detail dt { color: var(--color-content-secondary, #4b5565); font-size: 0.75rem; }
+.kms-profile-detail dd { margin-top: 0.25rem; overflow: hidden; color: var(--color-content-primary, #172033); font-size: 0.875rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+
+.kms-admin-notification-trigger {
+  position: relative;
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.24);
+  border-radius: 0.5rem;
+  background: rgb(255 255 255 / 0.08);
+  color: white;
+  outline: none;
+}
+
+.kms-admin-notification-badge {
+  position: absolute;
+  top: -0.4rem;
+  right: -0.45rem;
+  min-width: 1.1rem;
+  border: 2px solid var(--kms-admin-navy-light);
+  border-radius: 999px;
+  background: #dc2626;
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1.1rem;
+  text-align: center;
+}
+
+.kms-admin-notification-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  outline: none;
+  transition: background 160ms ease;
+}
+
+.kms-admin-notification-item:hover,
+.kms-admin-notification-item:focus-visible { background: var(--color-page-secondary, #f6f8fb); }
+.kms-admin-notification-item:focus-visible { box-shadow: inset 0 0 0 2px rgb(21 75 132 / 0.25); }
+.kms-admin-notification-item--unread { background: rgb(21 75 132 / 0.06); }
+.kms-admin-notification-icon { display: inline-flex; height: 2rem; width: 2rem; flex: none; align-items: center; justify-content: center; border-radius: 999px; background: rgb(21 75 132 / 0.1); color: var(--kms-admin-navy-light); }
+.kms-admin-unread-dot { height: 0.5rem; width: 0.5rem; flex: none; border-radius: 999px; background: #0a67b1; }
+.kms-admin-notification-modal-list { max-height: min(28rem, calc(100dvh - 12rem)); overflow-y: auto; }
+
+.kms-admin-profile-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  color: var(--color-content-primary, #172033);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.kms-admin-profile-menu-item:hover,
+.kms-admin-profile-menu-item:focus-visible { background: var(--kms-sky-50); }
+.kms-admin-profile-menu-item--danger { color: var(--color-content-danger, #b42318); }
+
+.kms-admin-sidebar { background: var(--kms-surface); }
+
+.kms-admin-nav-item {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+  cursor: pointer;
+  align-items: center;
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.75rem;
+  color: var(--kms-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  outline: none;
+  transform: translateX(0);
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.kms-admin-nav-item::before {
+  position: absolute;
+  top: 0.55rem;
+  bottom: 0.55rem;
+  left: 0;
+  width: 0.2rem;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(180deg, var(--kms-blue-600), var(--kms-teal-600));
+  content: "";
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.kms-admin-nav-item > svg {
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.kms-admin-nav-item:hover,
+.kms-admin-nav-item:focus-visible {
+  background: linear-gradient(90deg, rgb(18 97 166 / 0.11), rgb(0 127 131 / 0.065));
+  color: var(--kms-admin-navy-light);
+  transform: translateX(0.2rem);
+}
+.kms-admin-nav-item:hover::before,
+.kms-admin-nav-item:focus-visible::before,
+.kms-admin-nav-item--active::before { opacity: 1; transform: scaleY(1); }
+.kms-admin-nav-item:hover > svg,
+.kms-admin-nav-item:focus-visible > svg { color: var(--kms-teal-600); transform: scale(1.1); }
+.kms-admin-nav-item:focus-visible { box-shadow: 0 0 0 3px rgb(21 75 132 / 0.22); }
+.kms-admin-nav-item--active { background: rgb(21 75 132 / 0.12); color: var(--kms-admin-navy-light); }
+
+.kms-admin-dashboard-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--color-border-subtle, #e5e7eb);
+  padding-bottom: 1.5rem;
+}
+
+.kms-admin-section-eyebrow {
+  color: var(--kms-admin-navy-light);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kms-admin-metric-card,
+.kms-admin-chart-card,
+.kms-admin-contribution-card { box-shadow: 0 7px 20px rgb(11 30 69 / 0.05); }
+
+.kms-admin-surface {
+  border: 1px solid var(--kms-border);
+  border-radius: 0.75rem;
+  background: var(--kms-surface);
+}
+
+.kms-admin-dashboard .ina-card-plain.overflow-hidden {
+  border: 1px solid var(--kms-border);
+  border-radius: 0.75rem;
+  background: var(--kms-surface);
+  box-shadow: 0 7px 20px rgb(11 30 69 / 0.05);
+}
+
+.kms-admin-period-toolbar { padding: 1rem; }
+.kms-admin-metric-card { padding: 1rem; }
+.kms-admin-chart-card,
+.kms-admin-contribution-card {
+  align-self: start;
+  padding: 1.25rem;
+}
+
+.kms-admin-metric-icon {
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: rgb(21 75 132 / 0.12);
+  color: var(--kms-admin-navy-light);
+}
+
+.kms-admin-metric-icon--teal { background: rgb(0 143 150 / 0.12); color: #007e84; }
+.kms-admin-metric-icon--gold { background: rgb(244 197 66 / 0.18); color: #997000; }
+.kms-admin-metric-icon--purple { background: rgb(104 74 175 / 0.12); color: #684aaf; }
+
+.kms-admin-chart-grid { stroke: rgb(21 75 132 / 0.14); stroke-dasharray: 3 4; }
+.kms-admin-chart-axis-label { fill: #687284; font-size: 11px; }
+.kms-admin-chart-value { fill: var(--kms-admin-navy-light); font-size: 11px; font-weight: 700; }
+.kms-admin-chart-bar { fill: var(--kms-admin-navy-light); opacity: 0.88; }
+.kms-admin-chart-bar:hover { fill: #008f96; opacity: 1; }
+
+.kms-admin-ranking-item { border-radius: 0.5rem; padding: 0.125rem; outline: none; }
+.kms-admin-ranking-item:focus-visible { box-shadow: 0 0 0 3px rgb(21 75 132 / 0.22); }
+.kms-admin-ranking-number {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgb(21 75 132 / 0.1);
+  color: var(--kms-admin-navy-light);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.kms-admin-ranking-bar { background: linear-gradient(90deg, var(--kms-admin-navy-light), #008f96); }
+
+.kms-admin-contribution-card { background: linear-gradient(135deg, rgb(21 75 132 / 0.08), rgb(244 197 66 / 0.1)); }
+.kms-admin-personal-stat { border-radius: 0.5rem; background: color-mix(in srgb, var(--kms-surface) 82%, transparent); padding: 0.625rem 0.75rem; }
+.kms-admin-personal-stat span { display: block; color: var(--kms-muted); font-size: 0.75rem; }
+.kms-admin-personal-stat strong { display: block; margin-top: 0.125rem; color: var(--kms-ink); font-size: 1.125rem; }
+
+.kms-admin-asset-type-icon {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: rgb(21 75 132 / 0.11);
+  color: var(--kms-admin-navy-light);
+}
+.kms-admin-asset-type-icon--video { background: rgb(104 74 175 / 0.11); color: #684aaf; }
+

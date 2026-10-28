@@ -1,0 +1,123 @@
+/* Calm, shared backoffice rhythm; public pages retain their own visual layer. */
+.kms-admin-shell { --kms-admin-brand-navy: #121548; }
+.kms-admin-shell .kms-admin-topbar { background: var(--kms-admin-brand-navy); box-shadow: none; }
+.kms-admin-shell .kms-admin-brand-link .kms-public-brand { display: inline-flex; align-items: center; gap: .65rem; }
+.kms-admin-shell .kms-public-brand-mark { position: relative; display: block; flex: none; width: 2.6rem; height: 2.6rem; }
+.kms-admin-shell .kms-public-brand-mark svg { display: block; width: 100%; height: 100%; }
+.kms-admin-shell .kms-public-brand-mark img { position: absolute; inset: 24% 28%; width: 44%; height: 52%; object-fit: contain; }
+.kms-admin-shell .kms-public-brand-copy { display: flex; flex-direction: column; gap: .15rem; color: white; }
+.kms-admin-shell .kms-public-brand-copy strong { font-size: 1rem; font-weight: 800; line-height: 1.2; }
+.kms-admin-shell .kms-public-brand-copy small { color: rgb(255 255 255 / .78); font-size: .625rem; }
+.kms-admin-shell .kms-admin-sidebar { background: var(--kms-surface); box-shadow: none; }
+.kms-sidebar-workspace { display: flex; align-items: center; gap: .65rem; margin: 0 .25rem 1.4rem; padding: 0 .5rem 1.2rem; border-bottom: 1px solid var(--kms-border); }
+.kms-sidebar-workspace > span { display: grid; width: 2.4rem; height: 2.4rem; flex: none; place-items: center; border: 1px solid var(--kms-border); border-radius: .7rem; color: var(--kms-blue-600); background: var(--kms-sky-50); }
+.kms-sidebar-workspace strong { display: block; color: var(--kms-ink); font-size: .8125rem; }
+.kms-sidebar-workspace small { display: block; margin-top: .15rem; color: var(--kms-muted); font-size: .6875rem; }
+.kms-admin-shell .kms-admin-nav-item { min-height: 2.75rem; box-shadow: none; transform: none; }
+.kms-admin-shell .kms-admin-nav-item:hover, .kms-admin-shell .kms-admin-nav-item:focus-visible { background: var(--kms-sky-50); color: var(--kms-blue-600); transform: none; box-shadow: none; }
+.kms-admin-shell .kms-admin-nav-item--active { border-color: color-mix(in srgb, var(--kms-blue-600) 25%, var(--kms-border)); background: var(--kms-sky-50); color: var(--kms-blue-600); }
+.kms-admin-shell .kms-admin-nav-item::before { background: var(--kms-gold-500); }
+.kms-admin-shell .kms-admin-nav-item--child { font-weight: 500; }
+.kms-admin-shell .kms-admin-page-heading { position: relative; gap: 1.25rem; border-bottom: 1px solid var(--kms-border); padding-bottom: 1.5rem; }
+.kms-admin-shell .kms-admin-heading-identity { display: flex; align-items: flex-start; gap: 1rem; flex: 1 1 24rem; min-width: 0; }
+.kms-admin-heading-identity > div { min-width: 0; }
+.kms-admin-shell .kms-admin-page-heading h1 { font-size: clamp(1.5rem, 2vw, 1.875rem); line-height: 1.25; }
+.kms-admin-shell .kms-admin-section-eyebrow { font-size: .6875rem; letter-spacing: .09em; }
+.kms-admin-shell .kms-admin-page-actions { align-self: center; gap: .625rem; }
+.kms-admin-shell .kms-admin-page-actions .ina-button { white-space: normal; }
+.kms-admin-shell .kms-admin-surface { box-shadow: 0 2px 6px rgb(11 31 58 / .025); }
+.kms-admin-shell .kms-list-toolbar { gap: 1rem; padding: 1rem; border: 1px solid var(--kms-border); border-radius: .75rem; background: var(--kms-canvas); }
+.kms-admin-shell .kms-list-toolbar .ina-button { min-height: 2.5rem; }
+.kms-admin-shell .kms-admin-native-table th { background: var(--kms-sky-50); font-size: .6875rem; }
+.kms-admin-shell .kms-admin-native-table td { line-height: 1.6; }
+.kms-admin-shell .kms-admin-native-table tbody tr:hover { box-shadow: none; background: var(--kms-canvas); }
+.kms-admin-shell .kms-master-data-list { height: auto; min-height: 0; }
+.kms-master-data-list .kms-admin-native-table-shell--fluid { max-height: none; }
+.kms-master-data-list .kms-admin-native-table-shell--fluid thead { position: static; }
+.kms-category-description { width: 56%; overflow-wrap: anywhere; }
+.kms-master-data-pagination { display: grid; gap: .85rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--kms-border); }
+.kms-master-data-pagination > p { color: var(--kms-muted); font-size: .8125rem; }
+.kms-admin-unit-name { min-width: 0; }
+.kms-admin-unit-name > p, .kms-admin-unit-name button > span { min-width: 0; overflow-wrap: anywhere; }
+.kms-work-unit-logo.kms-admin-unit-logo { --kms-unit-logo-size: 2.75rem; display: grid; flex: none; align-self: center; width: var(--kms-unit-logo-size); height: var(--kms-unit-logo-size); min-width: var(--kms-unit-logo-size); padding: .3rem; border: 1px solid var(--kms-border); border-radius: 50%; overflow: hidden; background: #fff; color: #5b6877; }
+.kms-work-unit-logo.kms-admin-unit-logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.kms-work-unit-logo.kms-admin-unit-logo--heading { --kms-unit-logo-size: 4.25rem; margin-top: .25rem; }
+.kms-admin-unit-option { display: flex; align-items: center; gap: .75rem; min-width: 0; padding-block: .4rem; }
+.kms-admin-unit-option > span:last-child { white-space: normal; overflow-wrap: anywhere; }
+.kms-admin-shell .kms-admin-period-toolbar { padding: 1.1rem 1.25rem; background: var(--kms-surface); }
+.kms-analytics-period-row { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
+.kms-analytics-period-heading { display: flex; align-items: center; gap: .85rem; min-width: 0; }
+.kms-analytics-period-heading h2 { color: var(--kms-ink); font-size: .9375rem; font-weight: 700; }
+.kms-analytics-period-heading p { margin-top: .25rem; color: var(--kms-muted); font-size: .8125rem; line-height: 1.5; }
+.kms-analytics-period-select { flex: 0 0 17rem; max-width: 100%; }
+.kms-analytics-custom-range { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: end; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--kms-border); }
+.kms-analytics-date-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.kms-analytics-date-fields input { color-scheme:light dark; }
+.kms-dashboard-chart-pair { align-items:stretch; }
+.kms-dashboard-chart-pair > * { display:flex; flex-direction:column; min-width:0; }
+.kms-dashboard-chart-pair .kms-dashboard-media .kms-media-composition { flex:1; grid-template-columns:6rem minmax(0,1fr); gap:1rem; }
+.kms-dashboard-media .kms-media-donut { width:6rem; }
+.kms-dashboard-media .kms-media-donut-center { inset:.85rem; }
+.kms-admin-asset-heading { display:flex; align-items:center; gap:1.5rem; padding:1.25rem; }
+.kms-admin-asset-heading > div:last-child { flex:1; min-width:0; }
+.kms-admin-asset-thumbnail { display:grid; flex:0 0 min(34%,15rem); aspect-ratio:16/9; padding:.5rem; border:1px solid var(--kms-border); border-radius:.75rem; background:var(--kms-canvas); overflow:hidden; }
+.kms-admin-asset-thumbnail img { width:100%; height:100%; object-fit:contain; min-height:0; }
+.kms-category-logo { display:inline-flex; align-items:center; justify-content:center; flex:none; vertical-align:middle; overflow:hidden; }
+.kms-category-logo img { display:block; width:100%; height:100%; object-fit:contain; }
+.kms-logo-picker { min-width:0; padding:1rem; border:1px solid var(--kms-border); border-radius:.75rem; }
+.kms-logo-picker legend { padding:0 .35rem; color:var(--kms-ink); font-size:.875rem; font-weight:600; }
+.kms-logo-picker-body { display:flex; align-items:center; gap:1rem; }
+.kms-logo-picker-preview { display:grid; place-items:center; width:5rem; height:5rem; flex:none; padding:.4rem; border:1px solid var(--kms-border); border-radius:.65rem; background:#fff; color:#61728a; }
+.kms-logo-picker-preview img { display:block; width:100%; height:100%; object-fit:contain; }
+.kms-logo-picker-content { min-width:0; flex:1; }
+.kms-logo-picker-content p { color:var(--kms-muted); font-size:.75rem; line-height:1.6; overflow-wrap:anywhere; }
+.kms-logo-picker-input { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.kms-logo-picker-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:.5rem; }
+.kms-logo-picker-trigger { display:inline-flex; align-items:center; min-height:2.5rem; padding:.5rem .75rem; border:1px solid var(--kms-border); border-radius:.5rem; background:var(--kms-surface); color:var(--kms-blue-600); font-size:.8125rem; font-weight:600; cursor:pointer; }
+.kms-logo-picker-trigger:hover { background:var(--kms-sky-50); }
+.kms-logo-picker-input:focus-visible + .kms-logo-picker-actions .kms-logo-picker-trigger { outline:2px solid var(--kms-blue-600); outline-offset:3px; }
+.kms-logo-picker-trigger.is-disabled { pointer-events:none; opacity:.5; }
+.kms-logo-picker-content .kms-logo-picker-error { color:var(--ina-error-700,#c53c46); margin-top:.4rem; }
+.kms-logo-picker-filename { margin-top:.3rem; }
+@media(max-width:600px) { .kms-analytics-date-fields { grid-template-columns:minmax(0,1fr); } .kms-admin-asset-heading { align-items:flex-start; flex-direction:column; gap:1rem; } .kms-admin-asset-thumbnail { width:min(100%,18rem); flex-basis:auto; } }
+.kms-echelon-comparison-heading { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.25rem; }
+.kms-echelon-comparison-heading > :first-child { min-width: 0; flex: 1; }
+.kms-echelon-comparison-heading > .kms-echelon-metric-select { max-width: 100%; flex: 0 0 15rem; }
+.kms-echelon-comparison { display: grid; gap: 1rem; }
+.kms-echelon-comparison > li { display: grid; grid-template-columns: 2.75rem minmax(10rem, 1fr) minmax(4rem, 1.3fr) minmax(5.5rem, auto); align-items: center; gap: 1rem; }
+.kms-echelon-comparison-name { min-width: 0; overflow-wrap: anywhere; }
+.kms-echelon-comparison-name strong { display: block; font-size: .8125rem; color: var(--kms-ink); }
+.kms-echelon-comparison-name small { display: block; margin-top: .15rem; font-size: .6875rem; line-height: 1.5; color: var(--kms-muted); }
+.kms-echelon-comparison-track { height: .625rem; overflow: hidden; background: var(--kms-sky-50); border-radius: 1rem; }
+.kms-echelon-comparison-track > span { display: block; height: 100%; background: var(--kms-blue-600); border-radius: inherit; }
+.kms-echelon-comparison-value { color: var(--kms-ink); text-align: right; font-size: .875rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kms-echelon-comparison-value small { display: block; margin-top: .15rem; color: var(--kms-muted); font-size: .625rem; font-weight: 400; }
+.kms-dashboard-recent-grid { display: grid; gap: 1.25rem; align-items: start; }
+.kms-admin-shell .kms-admin-ranking-card { min-height: 0; }
+.kms-admin-shell .kms-media-composition { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+.kms-admin-shell .kms-media-composition-legend { width: 100%; }
+.kms-admin-shell .kms-media-composition-legend strong { white-space: normal; overflow-wrap: anywhere; }
+.kms-admin-shell .kms-media-donut:hover { transform: none; }
+.kms-admin-shell .ina-alert--caution { --ina-warning-500: var(--ina-warning-700); }
+[data-theme="dark"] .kms-admin-shell .ina-alert--caution { --ina-warning-500: #f2c45e; }
+@media (min-width: 1200px) { .kms-dashboard-recent-grid:has(.kms-admin-contribution-card) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); } }
+@media (max-width: 1000px) {
+  .kms-analytics-period-row { align-items: stretch; flex-direction: column; gap: 1rem; }
+  .kms-analytics-period-select { flex-basis: auto; }
+  .kms-echelon-comparison-heading { flex-direction: column; align-items: stretch; }
+  .kms-echelon-comparison-heading > .kms-echelon-metric-select { flex-basis: auto; }
+}
+@media (max-width: 767px) {
+  .kms-admin-shell .kms-public-brand-copy { display: none; }
+  .kms-admin-shell .kms-public-brand-mark { width: 2.25rem; height: 2.25rem; }
+  .kms-admin-shell .kms-admin-page-heading .kms-admin-heading-identity { width: 100%; flex-basis: 100%; }
+  .kms-admin-shell .kms-admin-page-heading .kms-admin-page-actions { width: 100%; }
+  .kms-admin-shell .kms-list-toolbar { padding: .75rem; gap: .75rem; }
+  .kms-admin-shell .kms-admin-period-toolbar { padding: 1rem; }
+  .kms-analytics-custom-range { grid-template-columns: minmax(0, 1fr); }
+  .kms-analytics-custom-range > button { justify-self: stretch; }
+  .kms-echelon-comparison > li { grid-template-columns: 2.5rem minmax(0, 1fr) auto; column-gap: .65rem; row-gap: .35rem; }
+  .kms-echelon-comparison > li > .kms-admin-unit-logo { grid-row: 1 / 3; --kms-unit-logo-size: 2.5rem; }
+  .kms-echelon-comparison-track { grid-column: 2 / -1; grid-row: 2; }
+  .kms-echelon-comparison-value { grid-column: 3; grid-row: 1; }
+}

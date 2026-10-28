@@ -1,4 +1,4 @@
-import { Tooltip } from "@idds/react";
+import AccessibleHint from "./AccessibleHint";
 import { workUnitFullName, workUnitShortName } from "../lib/workUnits";
 
 export default function WorkUnitLabel({
@@ -31,8 +31,8 @@ export default function WorkUnitLabel({
   if (shortName === fullName) return label;
 
   return (
-    <Tooltip className="kms-work-unit-tooltip" variant="basic" title={fullName} placement="top" showArrow={true}>
+    <AccessibleHint className="kms-work-unit-tooltip" title={fullName}>
       <span className={className} title={fullName} aria-label={fullName}>{shortName}</span>
-    </Tooltip>
+    </AccessibleHint>
   );
 }

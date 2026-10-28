@@ -1,5 +1,6 @@
 import { Alert, Button, CircleProgressBar, Modal, ProgressBar, Spinner } from "@idds/react";
 import { CircleCheck, RefreshCw, UploadCloud, X } from "lucide-react";
+import { useEffect } from "react";
 
 export function AssetQualityPanel({ quality }) {
   const missingItems = quality.checks.filter(([, complete]) => !complete).map(([label]) => label);
@@ -39,7 +40,7 @@ export function AssetPublicationReview({ isPublished, mode = "create" }) {
     <Alert
       variant="caution"
       title="Periksa kembali sebelum diajukan"
-      message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, aset menunggu keputusan verifikator dan belum tampil di publik.`}
+      message={`Pastikan judul, kategori, unit kerja, thumbnail, dan file utama sudah benar. Detail tambahan bersifat opsional. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, aset menunggu keputusan verifikator dan belum tampil di publik.`}
     />
   ) : (
     <Alert
@@ -58,7 +59,7 @@ export function AssetPublishConfirmationModal({ open, onClose, onConfirm, loadin
         <Alert
           variant="caution"
           title="Periksa kembali data aset"
-          message={`Pastikan judul, kategori, unit kerja, isi, thumbnail, dan file utama sudah benar. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, verifikator dalam cakupan Unit Kerja akan menilai kelayakannya.`}
+          message={`Pastikan judul, kategori, unit kerja, thumbnail, dan file utama sudah benar. Detail tambahan bersifat opsional. Setelah ${mode === "edit" ? "perubahan diajukan" : "pengajuan dikirim"}, verifikator dalam cakupan Unit Kerja akan menilai kelayakannya.`}
         />
         {missingItems.length > 0 && (
           <p className="rounded-lg bg-page-secondary px-4 py-3 text-sm text-content-secondary">
@@ -75,8 +76,26 @@ export function AssetPublishConfirmationModal({ open, onClose, onConfirm, loadin
 }
 
 export function UnsavedChangesModal({ open, onStay, onLeave }) {
+  useEffect(() => {
+    if (!open) return;
+    const keydown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); onStay(); }
+      if (event.key === "Tab") {
+        const dialog = document.querySelector(".kms-unsaved-dialog");
+        const buttons = [...(dialog?.querySelectorAll("button:not(:disabled)") || [])].filter((node) => node.getClientRects().length);
+        if (!buttons.length) return;
+        const first=buttons[0],last=buttons.at(-1);
+        if (!dialog.contains(document.activeElement) || (event.shiftKey && document.activeElement===first) || (!event.shiftKey && document.activeElement===last)) {
+          event.preventDefault(); (event.shiftKey?last:first).focus();
+        }
+        event.stopImmediatePropagation();
+      }
+    };
+    document.addEventListener("keydown",keydown,true);
+    return () => document.removeEventListener("keydown",keydown,true);
+  }, [open,onStay]);
   return (
-    <Modal open={open} onClose={onStay} title="Keluar dari formulir?" size="sm">
+    <Modal open={open} onClose={onStay} title="Keluar dari formulir?" size="sm" dialogClassname="kms-unsaved-dialog">
       <div className="space-y-5">
         <Alert
           variant="caution"

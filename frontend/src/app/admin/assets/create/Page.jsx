@@ -1,3 +1,4 @@
+import ValidatedForm from "../../../../components/ValidatedForm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ChevronRight, Home, Save } from "lucide-react";
@@ -21,6 +22,7 @@ import {
 } from "../../../../components/AssetFormStatus";
 import VideoFileInput from "../../../../components/VideoFileInput";
 import SafeFileUpload from "../../../../components/SafeFileUpload";
+import AssetUploadPreview from "../../../../components/AssetUploadPreview";
 import VideoMetadataFields from "../../../../components/VideoMetadataFields";
 import useDraftAutosave from "../../../../hooks/useDraftAutosave";
 import useUnsavedChanges from "../../../../hooks/useUnsavedChanges";
@@ -30,13 +32,13 @@ import { ASSET_FORM_STEPS, ASSET_STATUS_OPTIONS, ASSET_TYPE_OPTIONS, buildAssetF
 import { getAssetQuality } from "../../../../lib/assetQuality";
 import { firstInvalidAssetFormStep, validateAssetFormStep } from "../../../../lib/assetFormValidation";
 import useAdminView from "../../../../hooks/useAdminView";
-import { hasPermission } from "../../../../lib/permissions";
+import { hasPermission, hasOrganizationScope } from "../../../../lib/permissions";
 
 export default function CreateAssetPage() {
   const { user: authenticatedUser } = useAuth();
   const navigate = useNavigate();
   const user = authenticatedUser || {};
-  const isAdmin = user.role === "admin";
+  const isAdmin = hasOrganizationScope(user);
   const { accessUser, employeeId, isEmployeeContext, staffMember, withEmployeeContext } = useAdminView();
   const permissionUser = accessUser || authenticatedUser;
   const ownerAccount = isEmployeeContext ? staffMember : authenticatedUser;
@@ -51,6 +53,7 @@ export default function CreateAssetPage() {
   const [formData, setFormData] = useState(() => createAssetFormData(""));
   const [thumbnailFiles, setThumbnailFiles] = useState([]);
   const [documentFiles, setDocumentFiles] = useState([]);
+  const [previewKind, setPreviewKind] = useState(null);
   const [uploadState, setUploadState] = useState({ status: "idle", progress: 0 });
   const [saved, setSaved] = useState(false);
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
@@ -58,6 +61,14 @@ export default function CreateAssetPage() {
   const uploadAbortRef = useRef(null);
   const lastFeedbackRef = useRef("");
   const submitLockRef = useRef(false);
+  const previewFile = previewKind === "thumbnail" ? thumbnailFiles[0] : documentFiles[0];
+  const previewAsset = {
+    title: formData.title || "Judul aset",
+    asset_type: formData.asset_type,
+    work_unit: workUnits.find(unit => String(unit.id) === String(formData.work_unit_id)),
+    view_count: 0,
+    created_at: undefined,
+  };
 
   const quality = useMemo(
     () => getAssetQuality({
@@ -167,7 +178,7 @@ export default function CreateAssetPage() {
     });
     if (errors.length) {
       setError(errors.join(" "));
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      formRef.current?.querySelector("input:not([type=hidden]), textarea, button")?.focus({ preventScroll: true });
       return;
     }
     setError("");
@@ -210,7 +221,7 @@ export default function CreateAssetPage() {
     if (invalid) {
       setCurrentStep(invalid.step);
       setError(invalid.errors.join(" "));
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      formRef.current?.querySelector("input:not([type=hidden]), textarea, button")?.focus({ preventScroll: true });
       return false;
     }
     return true;
@@ -244,6 +255,7 @@ export default function CreateAssetPage() {
       if (!response.ok) throw new Error(data.detail || data.error || "Gagal menyimpan aset");
 
       setSaved(true);
+      unsavedChanges.markSaved();
       completed = true;
       setUploadState({ status: "complete", progress: 100 });
       toast({ state: "positive", title: "Berhasil", description: data.message || (formData.is_published === "true" ? "Aset berhasil diajukan untuk verifikasi." : "Draf aset berhasil disimpan."), duration: 3000 });
@@ -289,7 +301,7 @@ export default function CreateAssetPage() {
       {error && <div className="mb-6"><Alert variant="critical" title="Lengkapi formulir" message={error} /></div>}
 
       <div className="kms-admin-form-surface p-6 md:p-8">
-        <form ref={formRef} onSubmit={handleSubmit} className="flex flex-col gap-6">
+        <ValidatedForm busy={loading} ref={formRef} onSubmit={event => { if (currentStep < ASSET_FORM_STEPS.length - 1) { event.preventDefault(); goToNextStep(); } else handleSubmit(event); }} className="flex flex-col gap-6">
           <div className="border-b border-outline-secondary pb-5">
             <Stepper
               steps={ASSET_FORM_STEPS}
@@ -303,7 +315,7 @@ export default function CreateAssetPage() {
 
           {currentStep === 0 && (
             <section className="grid grid-cols-1 gap-5 md:grid-cols-2" aria-label="Informasi aset">
-              <div className="md:col-span-2"><TextField label="Judul Aset *" value={formData.title} onChange={(value) => updateFormData({ ...formData, title: inputValue(value) })} placeholder="Masukkan judul dokumen atau video..." showClearButton /></div>
+              <div className="md:col-span-2"><TextField required minLength={3} label="Judul Aset *" value={formData.title} onChange={(value) => updateFormData({ ...formData, title: inputValue(value) })} placeholder="Masukkan judul dokumen atau video..." showClearButton /></div>
               {isAdmin && (isEmployeeContext ? <div className="md:col-span-2 rounded-lg border border-outline-secondary bg-page-secondary px-4 py-3"><p className="text-sm font-semibold text-content-primary">Kontributor</p><p className="mt-1 text-sm text-content-secondary">{staffMember?.full_name || "Akun terpilih"}</p><p className="mt-1 text-xs text-content-tertiary">Kontributor dikunci selama mode akun aktif.</p></div> : <div className="md:col-span-2"><SelectDropdown options={staffOptions} selected={formData.authorId} onSelect={(value) => {
                 const contributor = staff.find((member) => String(member.id) === String(value));
                 updateFormData({
@@ -311,7 +323,7 @@ export default function CreateAssetPage() {
                   authorId: value,
                   work_unit_id: contributor?.work_unit_id ? String(contributor.work_unit_id) : formData.work_unit_id,
                 });
-              }} label="Pegawai kontributor" placeholder="Pilih Pegawai" indicator="check" /></div>)}
+              }} required label="Pegawai kontributor" placeholder="Pilih Pegawai" indicator="check" /></div>)}
               <SelectDropdown options={categoryOptions} selected={formData.category_id} onSelect={(value) => updateFormData({ ...formData, category_id: value })} label="Kategori Topik *" placeholder="Pilih Kategori" indicator="check" />
               <SelectDropdown options={workUnitOptions} selected={formData.work_unit_id} onSelect={(value) => updateFormData({ ...formData, work_unit_id: value })} label="Unit Kerja Pemilik *" placeholder="Pilih Unit Kerja" indicator="check" />
               <SelectDropdown options={ASSET_TYPE_OPTIONS} selected={formData.asset_type} onSelect={(value) => updateFormData({ ...formData, asset_type: value })} label="Tipe Aset *" placeholder="Pilih Tipe Aset" indicator="check" />
@@ -322,8 +334,8 @@ export default function CreateAssetPage() {
           {currentStep === 1 && (
             <section className="flex flex-col gap-5" aria-label="Konten aset">
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="asset-content" className="text-sm font-semibold text-content-primary">Konten Lengkap / Detail Tambahan *</label>
-                <textarea id="asset-content" value={formData.content} onChange={(event) => updateFormData({ ...formData, content: event.target.value })} placeholder="Tuliskan detail tambahan di sini..." className="min-h-[180px] w-full resize-y rounded-lg border border-outline-secondary bg-page-primary p-3 text-sm text-content-primary outline-none transition-all focus:border-interactive-primary focus:ring-1 focus:ring-interactive-primary" />
+                <label htmlFor="asset-content" className="text-sm font-semibold text-content-primary">Konten Lengkap / Detail Tambahan <span className="font-normal text-content-tertiary">(opsional)</span></label>
+                <textarea aria-label="Konten pengetahuan (opsional)" id="asset-content" value={formData.content} onChange={(event) => updateFormData({ ...formData, content: event.target.value })} placeholder="Tuliskan detail tambahan di sini (opsional)..." className="min-h-[180px] w-full resize-y rounded-lg border border-outline-secondary bg-page-primary p-3 text-sm text-content-primary outline-none transition-all focus:border-interactive-primary focus:ring-1 focus:ring-interactive-primary" />
               </div>
             </section>
           )}
@@ -331,11 +343,11 @@ export default function CreateAssetPage() {
           {currentStep === 2 && (
             <section className="flex flex-col gap-6" aria-label="Media aset">
               <div className="w-full">
-                <SafeFileUpload title="Unggah gambar thumbnail *" description="JPG, PNG, atau WebP · maksimal 2 MB" accept="image/jpeg,image/png,image/webp" allowedExtensions={["jpg", "jpeg", "png", "webp"]} maxSize={2 * 1024 * 1024} file={thumbnailFiles[0]} kind="image" onChange={handleThumbnailChange} onRemove={() => { setThumbnailFiles([]); clearFormFeedback(); }} />
+                <SafeFileUpload title="Unggah gambar thumbnail *" description="JPG, PNG, atau WebP · maksimal 10 MB" accept="image/jpeg,image/png,image/webp" allowedExtensions={["jpg", "jpeg", "png", "webp"]} maxSize={10 * 1024 * 1024} file={thumbnailFiles[0]} kind="image" onPreview={() => setPreviewKind("thumbnail")} onChange={handleThumbnailChange} onRemove={() => { setThumbnailFiles([]); clearFormFeedback(); }} />
                 <p className="mt-2 text-xs text-content-secondary">Gambar sampul membantu aset lebih mudah dikenali.</p>
               </div>
               <div className="w-full">
-                {formData.asset_type === "video" ? <VideoFileInput label="Unggah Video Utama *" file={documentFiles[0]} onChange={handleVideoChange} onDurationDetected={handleVideoDurationDetected} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} /> : <SafeFileUpload title="Unggah dokumen utama *" description="PDF · maksimal 20 MB" accept="application/pdf" allowedExtensions={["pdf"]} maxSize={20 * 1024 * 1024} file={documentFiles[0]} onChange={handleDocumentChange} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} />}
+                {formData.asset_type === "video" ? <VideoFileInput label="Unggah Video Utama *" file={documentFiles[0]} onPreview={() => setPreviewKind("video")} onChange={handleVideoChange} onDurationDetected={handleVideoDurationDetected} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} /> : <SafeFileUpload title="Unggah dokumen utama *" description="PDF · maksimal 20 MB" accept="application/pdf" allowedExtensions={["pdf"]} maxSize={20 * 1024 * 1024} file={documentFiles[0]} onPreview={() => setPreviewKind("document")} onChange={handleDocumentChange} onRemove={() => { setDocumentFiles([]); clearFormFeedback(); }} />}
                 <p className="mt-2 text-xs text-content-secondary">Dokumen menerima PDF; video menerima MP4, WebM, atau OGG.</p>
               </div>
               <div className="flex items-center justify-between gap-5 rounded-xl border border-outline-secondary bg-page-secondary p-4">
@@ -367,14 +379,15 @@ export default function CreateAssetPage() {
             <div className="flex flex-wrap justify-end gap-3">
               {currentStep > 0 && <Button type="button" hierarchy="secondary" onClick={() => setCurrentStep((step) => step - 1)} disabled={loading}>Kembali</Button>}
               {currentStep < ASSET_FORM_STEPS.length - 1 ? (
-                <Button type="button" hierarchy="primary" onClick={goToNextStep} disabled={loading}><span className="flex items-center gap-2">Lanjutkan <ArrowRight size={18} /></span></Button>
+                <Button type="submit" hierarchy="primary" disabled={loading}><span className="flex items-center gap-2">Lanjutkan <ArrowRight size={18} /></span></Button>
               ) : (
                 <Button type="submit" hierarchy="primary" disabled={loading || !formData.title}>{loading ? <span className="flex items-center gap-2"><Spinner size={17} borderWidth="medium" color="inherit" spinnerOnly />Menyimpan...</span> : <span className="flex items-center gap-2"><Save size={18} /> {formData.is_published === "true" ? "Ajukan Verifikasi" : "Simpan Draf"}</span>}</Button>
               )}
             </div>
           </div>
-        </form>
+        </ValidatedForm>
       </div>
+      {previewKind && previewFile && <AssetUploadPreview file={previewFile} kind={previewKind} asset={previewAsset} onClose={() => setPreviewKind(null)} />}
       <UnsavedChangesModal open={unsavedChanges.open} onStay={unsavedChanges.stay} onLeave={unsavedChanges.leave} />
       <AssetPublishConfirmationModal
         open={publishConfirmOpen}

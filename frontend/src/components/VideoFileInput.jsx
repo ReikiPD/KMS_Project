@@ -1,4 +1,4 @@
-import { FileVideo, X } from "lucide-react";
+import { Eye, FileVideo, X } from "lucide-react";
 import { Button } from "@idds/react";
 
 const VIDEO_EXTENSIONS = ["mp4", "webm", "ogg"];
@@ -25,7 +25,7 @@ const detectVideoDuration = (file) => new Promise((resolve) => {
   video.src = objectUrl;
 });
 
-export default function VideoFileInput({ file, onChange, onRemove, onDurationDetected, label = "Unggah Video Utama" }) {
+export default function VideoFileInput({ file, onChange, onRemove, onDurationDetected, onPreview, label = "Unggah Video Utama" }) {
   const handleChange = (event) => {
     const selected = event.target.files?.[0];
     event.target.value = "";
@@ -68,9 +68,9 @@ export default function VideoFileInput({ file, onChange, onRemove, onDurationDet
       </div>
 
       {file && (
-        <div className="mt-3 flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-3">
           <p className="min-w-0 truncate text-sm text-content-primary" title={file.name}>{file.name} <span className="text-content-secondary">({formatSize(file.size)})</span></p>
-          <Button type="button" hierarchy="tertiary" size="sm" prefixIcon={<X size={15} />} onClick={onRemove}>Hapus</Button>
+          <div className="flex flex-wrap gap-2">{onPreview && <Button type="button" hierarchy="secondary" size="sm" prefixIcon={<Eye size={15} />} onClick={onPreview}>Preview aset</Button>}<Button type="button" hierarchy="tertiary" size="sm" prefixIcon={<X size={15} />} onClick={onRemove}>Hapus</Button></div>
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 
 const recordAudit = async ({ actorId = null, actorLabel = null, actorRole = null, action, targetType, targetId = null, metadata = {} }) => {
   if ((!actorId && !actorLabel) || !action || !targetType) return;

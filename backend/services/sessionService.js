@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { admin, session } = require("../config/env");
 const { fullPermissions, loadRolePermissions, normalizePermissionMap } = require("./permissionService");
 
@@ -60,6 +60,7 @@ const sessionUser = (row) => ({
   email: row.user_email || row.actor_email,
   department: row.department || null,
   work_unit_id: row.work_unit_id || null,
+  organization_scope: row.organization_scope || 'unit',
   work_unit_name: row.work_unit_name || null,
   work_unit_alias: row.work_unit_alias || null,
   work_unit_public_id: row.work_unit_public_id || null,
@@ -128,7 +129,7 @@ const loadSession = async (req, { optional = false } = {}) => {
             s.last_seen_at, s.idle_expires_at, s.absolute_expires_at,
             u.full_name AS user_full_name, u.email AS user_email, u.department,
             u.avatar_url, u.role AS user_role, u.session_version AS user_session_version,
-            u.work_unit_id, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
+            u.work_unit_id, u.organization_scope, wu.public_id AS work_unit_public_id, wu.name AS work_unit_name, wu.alias AS work_unit_alias,
             wu.echelon_level AS work_unit_echelon_level,
             u.deleted_at AS user_deleted_at,
             COALESCE((

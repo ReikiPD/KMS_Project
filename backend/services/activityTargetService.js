@@ -1,4 +1,4 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 
 const activityTargetError = (status, message) => Object.assign(new Error(message), { status });
 

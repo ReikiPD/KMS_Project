@@ -1,8 +1,9 @@
 const fs = require("fs/promises");
 const path = require("path");
-const pool = require("../database/db");
+const pool = require("../config/db");
 const { uploadsDirectory } = require("../config/storage");
 const { recordAudit } = require("./auditService");
+const { getVersionFiles } = require("./assetVersionService");
 
 const safeFileName = (value) => {
   const candidate = typeof value === "string" ? value.trim() : "";
@@ -21,7 +22,11 @@ const removeUnreferencedFiles = async (values) => {
        SELECT avatar_url FROM users WHERE avatar_url = ANY($1::text[])
        UNION ALL
        SELECT image_url FROM announcements WHERE image_url = ANY($1::text[])
-     ) references
+       UNION ALL
+       SELECT snapshot->>'file_url' FROM asset_versions WHERE snapshot->>'file_url' = ANY($1::text[])
+       UNION ALL
+       SELECT snapshot->>'thumbnail_url' FROM asset_versions WHERE snapshot->>'thumbnail_url' = ANY($1::text[])
+     ) file_references
      WHERE file_name IS NOT NULL`,
     [candidates],
   );
@@ -47,6 +52,7 @@ const purgeExpiredAssets = async ({ batchSize = 100 } = {}) => {
   const limit = Math.max(1, Math.min(Number(batchSize) || 100, 500));
   const client = await pool.connect();
   let assets = [];
+  let historicalFiles = [];
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
@@ -61,6 +67,7 @@ const purgeExpiredAssets = async ({ batchSize = 100 } = {}) => {
     );
     assets = rows;
     if (assets.length) {
+      historicalFiles = await getVersionFiles(client, assets.map((asset) => asset.id));
       await client.query("DELETE FROM knowledge_assets WHERE id = ANY($1::integer[])", [assets.map((asset) => asset.id)]);
     }
     await client.query("COMMIT");
@@ -72,7 +79,7 @@ const purgeExpiredAssets = async ({ batchSize = 100 } = {}) => {
   }
 
   if (!assets.length) return { count: 0, deletedIds: [], fileCleanup: { deleted: [], failed: [] } };
-  const fileCleanup = await removeUnreferencedFiles(assets.flatMap((asset) => [asset.file_url, asset.thumbnail_url]));
+  const fileCleanup = await removeUnreferencedFiles([...historicalFiles, ...assets.flatMap((asset) => [asset.file_url, asset.thumbnail_url])]);
   await recordAudit({
     actorLabel: "Sistem Retensi KMS",
     actorRole: "system",

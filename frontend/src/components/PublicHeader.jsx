@@ -1,6 +1,9 @@
-import { Link, useNavigate } from "react-router-dom";
-import { Avatar, BasicDropdown } from "@idds/react";
-import { LayoutDashboard, LogIn, LogOut, Settings } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Avatar, BasicDropdown, Button, Drawer } from "@idds/react";
+import { LayoutDashboard, LogIn, LogOut, Menu, Settings } from "lucide-react";
+import KmsPublicBrand from "./KmsPublicBrand";
+import usePublicOverlayFocus from "../hooks/usePublicOverlayFocus";
 import { avatarUrl } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import AccessibilityMenu from "./AccessibilityMenu";
@@ -14,7 +17,50 @@ const initials = (name) => {
 
 export default function PublicHeader() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const header = useRef(null);
+  const menuTrigger = useRef(null);
   const { user, logout } = useAuth();
+  usePublicOverlayFocus(menuOpen, ".kms-public-menu-panel", () => setMenuOpen(false), menuTrigger);
+
+  useLayoutEffect(() => {
+    const node = header.current;
+    const shell = node?.closest(".kms-public");
+    if (!shell) return undefined;
+    const property = "--kms-public-header-height";
+    const previous = shell.style.getPropertyValue(property);
+    const measure = () => shell.style.setProperty(property, `${node.getBoundingClientRect().height}px`);
+    measure();
+    // Keep the hero fitted when text size, account controls, or viewport changes.
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(node);
+    if (!observer) window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      if (!observer) window.removeEventListener("resize", measure);
+      if (previous) shell.style.setProperty(property, previous);
+      else shell.style.removeProperty(property);
+    };
+  }, []);
+
+  useEffect(() => {
+    setMenuOpen(false);
+    if (location.pathname !== "/" || !["#unit-kerja", "#pengumuman"].includes(location.hash)) return;
+    // Lazy home content may mount after the shared header.
+    let timer;
+    let attempts = 0;
+    const reveal = () => {
+      const section = document.getElementById(location.hash.slice(1));
+      if (!section && attempts++ < 30) { timer = setTimeout(reveal, 100); return; }
+      section?.focus({ preventScroll: true });
+      section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    };
+    timer = setTimeout(reveal, 0);
+    return () => clearTimeout(timer);
+  }, [location.key, location.pathname, location.hash]);
+
+  const navigation = <>{[{ to: "/", label: "Beranda" }, { to: "/library", label: "Jelajahi" }, { to: "/#unit-kerja", label: "Unit kerja" }, { to: "/#pengumuman", label: "Pengumuman" }].map(item => <Link key={item.to} to={item.to} aria-current={`${location.pathname}${location.hash}` === item.to ? "page" : undefined} onClick={() => setMenuOpen(false)}>{item.label}</Link>)}</>;
 
   const handleLogout = async () => {
     await logout();
@@ -27,12 +73,10 @@ export default function PublicHeader() {
   const canOpenBackoffice = backofficePath.startsWith("/admin/");
 
   return (
-    <header className="kms-header">
+    <header ref={header} className="kms-header kms-public-header-redesign">
       <div className="kms-public-header-inner mx-auto flex min-h-[4.5rem] max-w-7xl items-center justify-between gap-4 px-4 py-3 md:px-8">
-        <button type="button" onClick={() => navigate("/")} className="kms-brand-link flex min-w-0 items-center gap-3 text-left" aria-label="Kembali ke beranda KMS Kemenhub">
-          <span className="kms-header-mark"><img src="/LOGO_KEMENTERIAN_PERHUBUNGAN_REPUBLIK_INDONESIA.png" alt="" aria-hidden="true" /></span>
-          <span className="min-w-0"><span className="kms-on-brand block truncate text-[11px] font-bold tracking-tight sm:text-[15px]">Knowledge Management System</span><span className="kms-on-brand-muted block max-w-[22rem] truncate text-[9px] sm:text-xs">Kementerian Perhubungan</span></span>
-        </button>
+        <Link to="/" className="kms-brand-link" aria-label="Kembali ke beranda KMS Kemenhub"><KmsPublicBrand compact inverse /></Link>
+        <nav className="kms-public-desktop-nav" aria-label="Navigasi utama">{navigation}</nav>
 
         <div className="kms-public-header-actions flex items-center gap-1.5">
           <AccessibilityMenu className="kms-theme-toggle--header" />
@@ -44,10 +88,12 @@ export default function PublicHeader() {
             content={<div className="overflow-hidden rounded-lg border border-border-subtle bg-page-primary py-1 shadow-lg"><div className="border-b border-border-subtle px-4 py-3"><p className="text-sm font-semibold text-content-primary">{user.full_name || roleLabel}</p><p className="mt-1 text-xs text-content-secondary">{roleLabel}</p></div>{canOpenBackoffice && <button type="button" onClick={() => navigate(backofficePath)} className="kms-admin-profile-menu-item"><LayoutDashboard size={17} /> Ruang kedinasan</button>}{canViewProfile && <button type="button" onClick={() => navigate("/admin/profile")} className="kms-admin-profile-menu-item"><Settings size={17} /> Pengaturan Profil</button>}<div className="my-1 h-px bg-border-subtle" /><button type="button" onClick={handleLogout} className="kms-admin-profile-menu-item kms-admin-profile-menu-item--danger"><LogOut size={17} /> Logout</button></div>}
           />
           ) : (
-            <Link to="/login" className="kms-header-button" aria-label="Masuk"><LogIn size={16} /><span className="hidden sm:inline">Masuk</span></Link>
+            <Button hierarchy="primary" onClick={() => navigate("/login")} prefixIcon={<LogIn size={16} />} aria-label="Masuk"><span className="kms-public-login-label">Masuk</span></Button>
           )}
+          <Button ref={menuTrigger} hierarchy="secondary" className="kms-public-menu-trigger" aria-label="Buka navigasi utama" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}><Menu size={21} /></Button>
         </div>
       </div>
+      <Drawer isOpen={menuOpen} onClose={() => setMenuOpen(false)} title="Menu KMS Kemenhub" width="sm" panelClassName="kms-public-menu-panel"><nav className="kms-public-mobile-nav" aria-label="Navigasi utama perangkat kecil">{navigation}</nav></Drawer>
     </header>
   );
 }

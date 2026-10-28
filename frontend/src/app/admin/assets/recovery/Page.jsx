@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import ResponsiveTable from "../../../../components/ResponsiveTable";
 import { Alert, Badge, Button, CardPlain, Modal, Pagination, Skeleton, Tooltip, useToast } from "@idds/react";
 import { ArchiveRestore, FileText, PlayCircle, RotateCcw, Search, Trash2 } from "lucide-react";
 import AdminPageHeader from "../../../../components/AdminPageHeader";
@@ -250,7 +251,7 @@ export default function AssetRecoveryPage() {
         ) : assets.length ? (
           <div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-sm">
+              <ResponsiveTable label="Aset terhapus" minTableWidth={960} primary={[0, 1]} summary={[5]} className="w-full min-w-[960px] text-left text-sm">
                 <thead className="bg-page-secondary text-xs uppercase tracking-wide text-content-secondary">
                   <tr><th className="w-12 px-5 py-3" aria-label="Pilihan aset" /><th className="px-3 py-3">Aset</th><th className="px-4 py-3">Kontributor</th><th className="px-4 py-3">Kategori / Unit Kerja</th><th className="px-4 py-3">Dihapus pada</th><th className="px-4 py-3">Status sebelumnya</th><th className="px-5 py-3 text-right">Aksi</th></tr>
                 </thead>
@@ -276,7 +277,7 @@ export default function AssetRecoveryPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </ResponsiveTable>
             </div>
             <div className="space-y-3 border-t border-border-subtle px-5 py-4">
               <p className="text-sm text-content-secondary">Menampilkan {firstVisibleItem}–{lastVisibleItem} dari {pagination.totalItems} aset terhapus</p>

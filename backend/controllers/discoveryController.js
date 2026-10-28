@@ -1,4 +1,4 @@
-const pool = require("../database/db");
+const pool = require("../config/db");
 
 const normalizedQuery = (value) => typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 200) : "";
 const getSearchTerms = (value, maxTerms = 8) => {

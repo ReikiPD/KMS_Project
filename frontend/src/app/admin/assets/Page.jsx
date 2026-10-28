@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import MobileDataList from "../../../components/MobileDataList";
 import {
   Table,
   Button,
@@ -7,7 +8,7 @@ import {
   Alert,
   Badge,
   Modal,
-  Card,
+  CardPlain,
   SelectDropdown,
   useToast,
 } from "@idds/react";
@@ -21,16 +22,18 @@ import {
   Columns3,
   Rows3,
   Undo2,
-  Star,
   MessageSquareText,
   UserRoundCheck,
   Clock3,
 } from "lucide-react";
 import AdminPageHeader from "../../../components/AdminPageHeader";
 import AssetQuickPreview from "../../../components/AssetQuickPreview";
+import FeaturedSettingsControl from "../../../components/FeaturedSettingsControl";
+import HomepageTopicsControl from "../../../components/HomepageTopicsControl";
 import EmptyState from "../../../components/EmptyState";
 import MultipleSearchSelect from "../../../components/MultipleSearchSelect";
 import { apiFetch } from "../../../lib/api";
+import { assetContextKey } from "../../../lib/accountContext";
 import { useAuth } from "../../../contexts/AuthContext";
 import { hasPermission } from "../../../lib/permissions";
 import { searchSelectionsToQuery } from "../../../lib/search";
@@ -58,9 +61,9 @@ const formatReviewDate = (value) => {
 export default function AssetsPage() {
   const { user: authenticatedUser } = useAuth();
   const navigate = useNavigate();
-  const { accessUser, employeeId, isActingAsEmployee, isAdminViewingUser, isEmployeeContext, staffMember, withEmployeeContext } = useAdminView();
+  const { accessUser, isActingAsEmployee, isAdminViewingUser, isEmployeeContext, staffMember, withEmployeeContext } = useAdminView();
   const user = accessUser || authenticatedUser || {};
-  const selectedAuthorId = isEmployeeContext ? employeeId : "";
+  const contextKey = assetContextKey(authenticatedUser, user, isEmployeeContext);
   const { toast } = useToast();
   const canCreate = hasPermission(user, "assets", "post");
   const canEdit = hasPermission(user, "assets", "edit");
@@ -71,6 +74,9 @@ export default function AssetsPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [listScope, setListScope] = useState("own");
+  const [loadedContext, setLoadedContext] = useState(null);
+  const fetchController = useRef(null);
 
   // State untuk Controlled Table
   const [searchSelections, setSearchSelections] = useState([]);
@@ -91,7 +97,6 @@ export default function AssetsPage() {
   const [undoing, setUndoing] = useState(false);
   const [density, setDensity] = useState("compact");
   const [visibleColumns, setVisibleColumns] = useState(COLUMN_OPTIONS.map((option) => option.value));
-  const [featuredSavingId, setFeaturedSavingId] = useState("");
   const undoTimerRef = useRef(null);
 
   const navigateScoped = useCallback((path) => {
@@ -100,6 +105,9 @@ export default function AssetsPage() {
 
   // Mengambil data dari Backend
   const fetchAssets = useCallback(async () => {
+    fetchController.current?.abort();
+    const controller = new AbortController();
+    fetchController.current = controller;
     setIsLoading(true);
     setError("");
     try {
@@ -108,26 +116,40 @@ export default function AssetsPage() {
         page: String(fetchParams.page),
         limit: String(fetchParams.pageSize),
       });
-      if (selectedAuthorId) params.set("authorId", selectedAuthorId);
       if (fetchParams.searchTerm) params.set("q", fetchParams.searchTerm);
       if (fetchParams.sortField) params.set("sortField", fetchParams.sortField);
       if (fetchParams.sortOrder) params.set("sortOrder", fetchParams.sortOrder);
-      const response = await apiFetch(`/api/assets/admin?${params}`, { auth: true });
+      const response = await apiFetch(`/api/assets/admin?${params}`, { auth: true, signal: controller.signal, cache: "no-store" });
 
       if (!response.ok) throw new Error("Gagal mengambil data aset");
 
       const result = await response.json();
+      if (controller.signal.aborted) return;
       setData(Array.isArray(result) ? result : (result.data || []));
       setTotalItems(Array.isArray(result) ? result.length : (result.pagination?.totalItems || 0));
+      setLoadedContext(contextKey);
+      setListScope(result.scope?.type || "own");
     } catch (err) {
+      if (controller.signal.aborted) return;
+      setData([]); setTotalItems(0);
       setError(err.message);
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, [fetchParams.page, fetchParams.pageSize, fetchParams.searchTerm, fetchParams.sortField, fetchParams.sortOrder, selectedAuthorId]);
+  }, [fetchParams.page, fetchParams.pageSize, fetchParams.searchTerm, fetchParams.sortField, fetchParams.sortOrder, contextKey]);
+
+  useEffect(() => {
+    fetchController.current?.abort();
+    setData([]); setTotalItems(0); setLoadedContext(null); setListScope("own");
+    setPreviewAsset(null); setReviewAsset(null); setIsDeleteModalOpen(false); setAssetToDelete(null); setUndoAsset(null);
+    setSearchSelections([]);
+    setFetchParams({ page: 1, pageSize: 10, sortField: null, sortOrder: null, searchTerm: "" });
+    if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
+  }, [contextKey]);
 
   useEffect(() => {
     fetchAssets();
+    return () => fetchController.current?.abort();
   }, [fetchAssets]);
 
   // Menangani Pencarian Klien
@@ -208,31 +230,8 @@ export default function AssetsPage() {
     if (undoTimerRef.current) window.clearTimeout(undoTimerRef.current);
   }, []);
 
-  const processedData = { paginatedData: data, total: totalItems };
+  const processedData = { paginatedData: loadedContext === contextKey ? data : [], total: loadedContext === contextKey ? totalItems : 0 };
 
-  const toggleFeatured = async (asset) => {
-    const reference = assetRouteReference(asset);
-    if (!reference || featuredSavingId) return;
-    setFeaturedSavingId(String(reference));
-    setError("");
-    try {
-      const response = await apiFetch(`/api/assets/admin/${encodeURIComponent(reference)}/featured`, {
-        method: "PATCH",
-        auth: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isFeatured: !asset.is_featured }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Sorotan belum dapat diperbarui");
-      setData((current) => current.map((item) => item.id === asset.id ? { ...item, is_featured: result.asset?.is_featured } : item));
-      toast({ state: "positive", title: asset.is_featured ? "Aset dikeluarkan dari sorotan" : "Aset menjadi sorotan", description: result.message, duration: 3000 });
-    } catch (featuredError) {
-      setError(featuredError.message);
-      toast({ state: "negative", title: "Sorotan belum berubah", description: featuredError.message, duration: 4000 });
-    } finally {
-      setFeaturedSavingId("");
-    }
-  };
 
   const searchOptions = useMemo(() => {
     const option = (group, value, description) => value ? { group, label: value, value, description } : null;
@@ -332,55 +331,19 @@ export default function AssetsPage() {
       header: "Aksi",
       accessor: "actions",
       sortable: false,
-      render: (row) => (
-        <div className="flex items-center gap-2">
-          {canManageFeatured && (
-            <Tooltip variant="basic" title={!row.is_published ? "Terbitkan aset sebelum menjadikannya sorotan" : row.is_featured ? "Hapus dari Pengetahuan Sorotan" : "Tambahkan ke Pengetahuan Sorotan"} placement="top" showArrow={true}>
-              <Button size="sm" hierarchy="tertiary" onClick={() => toggleFeatured(row)} disabled={!row.is_published || Boolean(featuredSavingId)} aria-label={row.is_featured ? `Hapus ${row.title} dari sorotan` : `Jadikan ${row.title} sebagai sorotan`}>
-                <Star size={16} className={row.is_featured ? "fill-current text-[#F2B843]" : "text-content-secondary hover:text-[#B77900]"} />
-              </Button>
-            </Tooltip>
-          )}
-          <Tooltip variant="basic" title="Preview" placement="top" showArrow={true}>
-            <Button size="sm" hierarchy="tertiary" onClick={() => setPreviewAsset(row)} aria-label={`Preview ${row.title}`}>
-              <Eye size={16} className="text-content-secondary hover:text-content-guide" />
-            </Button>
-          </Tooltip>
-          {canEdit && row.publication_status !== "pending_review" && <>
-          <Tooltip
-            variant="basic"
-            title="Edit Aset"
-            placement="top"
-            showArrow={true}
-          >
-            <Button
-              size="sm"
-              hierarchy="tertiary"
-              onClick={() => navigateScoped(adminAssetEditPath(row))}
-            >
-              <Edit size={16} className="text-content-secondary hover:text-content-guide" />
-            </Button>
-          </Tooltip>
-
-          </>}
-          {canDelete && <>
-          <Tooltip
-            variant="basic"
-            title="Hapus Aset"
-            placement="top"
-            showArrow={true}
-          >
-            <Button
-              size="sm"
-              hierarchy="tertiary"
-              onClick={() => handleDeleteClick(row)}
-            >
-              <Trash2 size={16} className="text-content-secondary hover:text-status-danger" />
-            </Button>
-          </Tooltip>
-          </>}
-        </div>
-      ),
+      render: (row) => {
+        const editable = row.can_edit === true;
+        const items = [
+          { label: "Preview", icon: <Eye size={17} />, onClick: () => setPreviewAsset(row) },
+          ...(editable ? [{ label: "Edit aset", icon: <Edit size={17} />, onClick: () => navigateScoped(adminAssetEditPath(row)) }] : []),
+          ...(row.can_delete === true ? [{ label: "Hapus aset", icon: <Trash2 size={16} />, type: "danger", onClick: () => handleDeleteClick(row) }] : []),
+        ];
+        return <div className="kms-asset-icon-actions">
+          {items.map(item => <Tooltip key={item.label} variant="basic" title={item.label} placement="top" showArrow>
+            <Button size="sm" hierarchy="tertiary" className={`kms-asset-icon-action ${item.type ? `is-${item.type}` : ""}`} aria-label={`${item.label}: ${row.title}`} disabled={item.disabled} onClick={item.onClick}>{item.icon}</Button>
+          </Tooltip>)}
+        </div>;
+      },
     },
   ];
   const displayColumns = columns.filter((column) => {
@@ -390,7 +353,7 @@ export default function AssetsPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 md:p-6 xl:p-8">
-      <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode akses akun" : "Manajemen Pengetahuan"} title="Katalog Aset Pengetahuan" description={isEmployeeContext ? `Aset ${staffMember?.full_name || "akun terpilih"}; aksi mengikuti hak akses role akun tersebut.` : user.role === "admin" ? "Kelola aset seluruh Pegawai melalui Manajemen Pegawai atau mode kerja Pegawai." : canWrite ? "Kelola dokumen dan media yang Anda buat, dari draf hingga publikasi." : "Lihat aset pengetahuan sesuai hak akses role Anda."} breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Aset Pengetahuan" }]} actions={canCreate ? <Button hierarchy="primary" onClick={() => navigateScoped("/admin/assets/create")} prefixIcon={<Plus size={18} />}>Tambah aset</Button> : null} />
+      <AdminPageHeader eyebrow={isActingAsEmployee ? "Mode kerja Pegawai" : isAdminViewingUser ? "Mode akses akun" : "Manajemen Pengetahuan"} title="Katalog Aset Pengetahuan" description={isEmployeeContext ? `Aset ${staffMember?.full_name || "akun terpilih"}; aksi mengikuti hak akses role akun tersebut.` : user.role === "admin" ? "Kelola aset seluruh Pegawai melalui Manajemen Pegawai atau mode kerja Pegawai." : canWrite ? "Kelola dokumen dan media yang Anda buat, dari draf hingga publikasi." : "Lihat aset pengetahuan sesuai hak akses role Anda."} breadcrumbs={[{ label: "Dasbor", href: withEmployeeContext("/admin/dashboard") }, { label: "Aset Pengetahuan" }]} actions={(canManageFeatured || canCreate) ? <div className="flex flex-wrap gap-2">{canManageFeatured && <><FeaturedSettingsControl /><HomepageTopicsControl /></>}{canCreate && <Button hierarchy="primary" onClick={() => navigateScoped("/admin/assets/create")} prefixIcon={<Plus size={18} />}>Tambah aset</Button>}</div> : null} />
 
       {error && (
         <div className="mb-4">
@@ -398,7 +361,8 @@ export default function AssetsPage() {
         </div>
       )}
 
-      <Card className="kms-admin-surface p-4 md:p-6">
+      <CardPlain className="kms-admin-surface kms-assets-list-card p-4 md:p-6">
+        {listScope === "staff" && loadedContext === contextKey && <p className="mb-4 text-sm text-content-secondary">Menampilkan aset Anda dan akun dalam cakupan Daftar Staf. Untuk mengubah aset akun lain, akses akun pemilik melalui Daftar Staf.</p>}
         <div className="mb-6 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
           <div className="grid max-w-3xl gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <MultipleSearchSelect
@@ -423,6 +387,7 @@ export default function AssetsPage() {
         </div>
 
         <div className={`kms-admin-table-shell kms-admin-table-shell--page kms-admin-table-shell--${density} kms-assets-table`}>
+        {!isLoading && processedData.total > 0 && <MobileDataList rows={processedData.paginatedData} columns={displayColumns} />}
         {!isLoading && processedData.total === 0 ? <EmptyState title="Belum ada aset yang sesuai" description="Ubah pencarian atau buat aset pengetahuan baru." actionLabel={canCreate ? "Tambah aset" : undefined} onAction={canCreate ? () => navigateScoped("/admin/assets/create") : undefined} /> : <Table
           columns={displayColumns}
           data={processedData.paginatedData}
@@ -438,7 +403,7 @@ export default function AssetsPage() {
           striped
         />}
         </div>
-      </Card>
+      </CardPlain>
 
       {undoAsset && <aside className="kms-undo-toast" role="status"><div><strong>Aset dipindahkan ke pemulihan</strong><p>{undoAsset.title}</p></div><Button hierarchy="secondary" size="sm" prefixIcon={<Undo2 size={15} />} onClick={undoDelete} disabled={undoing}>{undoing ? "Memulihkan…" : "Batalkan"}</Button></aside>}
 
